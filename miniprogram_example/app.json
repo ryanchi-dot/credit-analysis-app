@@ -1,6 +1,7 @@
 {
   "pages": [
     "pages/index/index",
+    "pages/chat/chat",
     "pages/progress/progress",
     "pages/report/report"
   ],

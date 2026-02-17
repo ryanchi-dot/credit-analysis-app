@@ -70,6 +70,29 @@
   margin-top: 20rpx;
 }
 
+.chat-entry {
+  margin-top: 40rpx;
+  padding: 30rpx;
+  background-color: #f0f9ff;
+  border-radius: 16rpx;
+  border: 2rpx solid #b3e0ff;
+}
+
+.chat-hint {
+  display: block;
+  font-size: 26rpx;
+  color: #666;
+  margin-bottom: 16rpx;
+}
+
+.btn-chat {
+  display: block;
+  text-align: center;
+  color: #1890ff;
+  font-size: 28rpx;
+  font-weight: bold;
+}
+
 .tips {
   margin-top: 60rpx;
   padding: 30rpx;
