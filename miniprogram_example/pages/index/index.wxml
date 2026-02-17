@@ -1,0 +1,45 @@
+<!--index.wxml-->
+<view class="container">
+  <view class="header">
+    <text class="title">银行信贷分析助手</text>
+    <text class="subtitle">专业的企业授信分析工具</text>
+  </view>
+
+  <view class="form">
+    <view class="form-item">
+      <text class="label">公司名称</text>
+      <input
+        class="input"
+        placeholder="请输入公司完整名称"
+        value="{{companyName}}"
+        bindinput="onCompanyNameInput"
+      />
+    </view>
+
+    <view class="form-item">
+      <text class="label">分析模板</text>
+      <picker bindchange="onTemplateChange" value="{{templateIndex}}" range="{{templates}}">
+        <view class="picker">
+          {{templates[templateIndex]}}
+        </view>
+      </picker>
+    </view>
+
+    <button
+      class="btn-submit"
+      type="primary"
+      bindtap="onSubmit"
+      loading="{{loading}}"
+      disabled="{{loading}}"
+    >
+      开始分析
+    </button>
+  </view>
+
+  <view class="tips">
+    <text class="tips-title">使用提示：</text>
+    <text class="tips-item">• 请输入公司的完整名称</text>
+    <text class="tips-item">• 分析过程可能需要 2-5 分钟</text>
+    <text class="tips-item">• 分析结果将以报告形式展示</text>
+  </view>
+</view>

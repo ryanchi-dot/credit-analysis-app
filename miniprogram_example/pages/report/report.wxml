@@ -1,0 +1,16 @@
+<!--pages/report/report.wxml-->
+<view class="container">
+  <view class="header">
+    <text class="title">{{companyName}}</text>
+    <text class="subtitle">授信分析报告</text>
+  </view>
+
+  <view class="report-content">
+    <text class="report-text">{{report}}</text>
+  </view>
+
+  <view class="actions">
+    <button class="btn-action" bindtap="onCopy">复制报告</button>
+    <button class="btn-action" bindtap="onShare">分享</button>
+  </view>
+</view>
