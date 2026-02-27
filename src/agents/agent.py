@@ -13,6 +13,7 @@ from langchain_core.messages import AnyMessage
 # 导入工具
 from tools.web_search_tool import search_company_info, search_comprehensive_company_data
 from tools.image_generation_tool import generate_chart_image
+from tools.word_report_tool import create_word_report
 
 # 导入短期记忆
 from storage.memory.memory_saver import get_memory_saver
@@ -72,7 +73,8 @@ def build_agent(ctx=None):
     tools = [
         search_company_info,
         search_comprehensive_company_data,
-        generate_chart_image
+        generate_chart_image,
+        create_word_report
     ]
     
     # 创建 Agent（带短期记忆）
