@@ -153,8 +153,8 @@ def create_word_report(
                     response = requests.get(image_url, timeout=10)
                     if response.status_code == 200:
                         # 保存到临时文件
-                        temp_image_path = f"/temp/image_{i}.png"
-                        os.makedirs('/temp', exist_ok=True)
+                        temp_image_path = f"/tmp/image_{i}.png"
+                        os.makedirs('/tmp', exist_ok=True)
                         with open(temp_image_path, 'wb') as f:
                             f.write(response.content)
                         
@@ -173,7 +173,8 @@ def create_word_report(
                         caption_para.paragraph_format.space_after = Pt(6)
                         
                         # 删除临时文件
-                        os.remove(temp_image_path)
+                        if os.path.exists(temp_image_path):
+                            os.remove(temp_image_path)
                 except Exception as e:
                     # 图片下载失败，添加文字说明
                     para = doc.add_paragraph()
@@ -209,8 +210,8 @@ def create_word_report(
             _add_table_from_data(doc, current_table_data)
         
         # 保存Word文档到临时文件
-        temp_path = f"/temp/credit_report_part{part_number}.docx"
-        os.makedirs('/temp', exist_ok=True)
+        temp_path = f"/tmp/credit_report_part{part_number}.docx"
+        os.makedirs('/tmp', exist_ok=True)
         doc.save(temp_path)
         
         # 验证文档是否正确生成
@@ -244,38 +245,59 @@ def create_word_report(
         
         # 生成文件名
         safe_title = title.replace(" ", "_").replace("/", "_").replace("\\", "_")
-        object_key = f"credit_reports/{safe_title}_part{part_number}.docx"
+        file_name = f"{safe_title}_part{part_number}.docx"
         
         # 上传文件
-        storage_client.upload_file(
-            file_content=file_content,
-            file_name=f"{safe_title}_part{part_number}.docx",
-            content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        )
-        
-        # 构建访问URL
-        endpoint_url = os.getenv("COZE_BUCKET_ENDPOINT_URL", "")
-        if endpoint_url:
-            # 移除协议头，确保格式正确
-            if endpoint_url.startswith("http://"):
-                endpoint_url = endpoint_url[7:]
-            elif endpoint_url.startswith("https://"):
-                endpoint_url = endpoint_url[8:]
+        try:
+            object_key = storage_client.upload_file(
+                file_content=file_content,
+                file_name=file_name,
+                content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            )
             
-            storage_url = f"https://{bucket_name}.{endpoint_url}/{object_key}"
-        else:
-            storage_url = f"s3://{bucket_name}/{object_key}"
+            # 使用S3Storage生成签名URL（可访问的临时链接）
+            try:
+                # 生成1小时有效期的签名URL
+                signed_url = storage_client.generate_presigned_url(
+                    key=object_key,
+                    expire_time=3600  # 1小时
+                )
+                storage_url = signed_url
+                logger.info(f"生成签名URL成功: {storage_url}")
+            except Exception as sign_error:
+                logger.error(f"生成签名URL失败: {sign_error}")
+                # 如果签名URL生成失败，回退到普通URL格式
+                endpoint_url = os.getenv("COZE_BUCKET_ENDPOINT_URL", "")
+                if endpoint_url:
+                    clean_endpoint = endpoint_url.rstrip('/')
+                    storage_url = f"{clean_endpoint}/{bucket_name}/{object_key}"
+                else:
+                    storage_url = f"s3://{bucket_name}/{object_key}"
+            
+            # 删除临时文件
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            
+            return json.dumps({
+                "success": True,
+                "word_url": storage_url,
+                "part_number": part_number,
+                "total_parts": total_parts,
+                "filename": f"{title}_part{part_number}.docx",
+                "object_key": object_key,
+                "expires_in": "1小时" if "signed_url" in str(storage_url) else "永久"
+            }, ensure_ascii=False, indent=2)
         
-        # 删除临时文件
-        os.remove(temp_path)
-        
-        return json.dumps({
-            "success": True,
-            "word_url": storage_url,
-            "part_number": part_number,
-            "total_parts": total_parts,
-            "filename": f"{title}_part{part_number}.docx"
-        }, ensure_ascii=False, indent=2)
+        except Exception as upload_error:
+            logger.error(f"文件上传失败: {upload_error}")
+            # 即使上传失败，也提供本地文件路径作为备用
+            return json.dumps({
+                "success": False,
+                "error": "文件上传失败",
+                "details": str(upload_error),
+                "local_file": temp_path,
+                "file_size": file_size
+            }, ensure_ascii=False, indent=2)
     
     except Exception as e:
         import traceback
