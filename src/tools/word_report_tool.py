@@ -4,12 +4,15 @@ Word报告生成工具
 import os
 import json
 import requests
+import logging
 from docx import Document
 from docx.shared import Pt, RGBColor, Inches, Cm
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 from langchain.tools import tool, ToolRuntime
 from coze_coding_utils.runtime_ctx.context import new_context
+
+logger = logging.getLogger(__name__)
 
 
 @tool
@@ -209,6 +212,16 @@ def create_word_report(
         temp_path = f"/temp/credit_report_part{part_number}.docx"
         os.makedirs('/temp', exist_ok=True)
         doc.save(temp_path)
+        
+        # 验证文档是否正确生成
+        if not os.path.exists(temp_path):
+            raise ValueError("Word文档生成失败：文件不存在")
+        
+        file_size = os.path.getsize(temp_path)
+        if file_size < 1024:  # 文件大小小于1KB，可能生成失败
+            raise ValueError(f"Word文档生成失败：文件大小过小（{file_size} bytes）")
+        
+        logger.info(f"Word文档生成成功，文件大小：{file_size} bytes")
         
         # 读取文件内容
         with open(temp_path, 'rb') as f:
