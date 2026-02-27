@@ -70,6 +70,44 @@ class GraphService:
         id_line = f"id: {event_id}\n" if event_id else ""
         return f"{id_line}event: message\ndata: {json.dumps(data, ensure_ascii=False, default=str)}\n\n"
 
+    def _get_thread_id(self, payload: Dict[str, Any], ctx: Context) -> str:
+        """
+        生成 thread_id，用于隔离不同用户的会话历史
+        
+        优先级：
+        1. user_id：如果提供，使用 user_id 作为 thread_id，同一用户共享历史
+        2. session_id：如果提供，使用 session_id 作为 thread_id，同一会话共享历史
+        3. run_id：兜底方案，每次请求都是新会话
+        
+        Args:
+            payload: 请求载荷，可能包含 user_id 或 session_id
+            ctx: 上下文对象，包含 run_id
+        
+        Returns:
+            thread_id: 会话标识符
+        """
+        user_id = payload.get("user_id")
+        session_id = payload.get("session_id")
+        
+        if user_id:
+            # 使用 user_id 作为 thread_id，确保同一用户共享历史
+            # 格式: user_{user_id}
+            thread_id = f"user_{user_id}"
+            logger.info(f"Using user_id for thread_id: {thread_id}")
+            return thread_id
+        elif session_id:
+            # 使用 session_id 作为 thread_id，同一会话共享历史
+            # 格式: session_{session_id}
+            thread_id = f"session_{session_id}"
+            logger.info(f"Using session_id for thread_id: {thread_id}")
+            return thread_id
+        else:
+            # 兜底：使用 run_id（每次请求都是新会话）
+            # 格式: run_{run_id}
+            thread_id = f"run_{ctx.run_id}"
+            logger.info(f"Using run_id for thread_id: {thread_id}")
+            return thread_id
+
     def _get_stream_runner(self):
         if graph_helper.is_agent_proj():
             return self._agent_stream_runner
@@ -95,7 +133,9 @@ class GraphService:
             graph = self._get_graph(ctx)
             # custom tracer
             run_config = init_run_config(graph, ctx)
-            run_config["configurable"] = {"thread_id": ctx.run_id}
+            # 使用 get_thread_id 生成 thread_id，支持用户会话隔离
+            thread_id = self._get_thread_id(payload, ctx)
+            run_config["configurable"] = {"thread_id": thread_id}
 
             # 直接调用，LangGraph会在当前任务上下文中执行
             # 如果当前任务被取消，LangGraph的执行也会被取消
@@ -133,6 +173,12 @@ class GraphService:
             run_config = init_agent_config(graph, ctx)
         else:
             run_config = init_run_config(graph, ctx)  # vibeflow
+
+        # 使用 get_thread_id 生成 thread_id，支持用户会话隔离
+        thread_id = self._get_thread_id(payload, ctx)
+        if "configurable" not in run_config:
+            run_config["configurable"] = {}
+        run_config["configurable"]["thread_id"] = thread_id
 
         is_workflow = not graph_helper.is_agent_proj()
 
