@@ -230,6 +230,7 @@ def create_word_report(
         
         # 使用S3Storage上传文件
         from storage.s3.s3_storage import S3SyncStorage
+        import re
         
         # 获取环境变量配置
         access_key = os.getenv("COZE_WORKLOAD_IDENTITY_API_KEY", "")
@@ -243,9 +244,11 @@ def create_word_report(
             bucket_name=bucket_name
         )
         
-        # 生成文件名
-        safe_title = title.replace(" ", "_").replace("/", "_").replace("\\", "_")
+        # 生成文件名（只保留英文字母、数字、点、下划线、短横，其他字符替换为下划线）
+        safe_title = re.sub(r'[^a-zA-Z0-9._\-]', '_', title)
         file_name = f"{safe_title}_part{part_number}.docx"
+        
+        logger.info(f"文件名: {file_name}, 原标题: {title}")
         
         # 上传文件
         try:
