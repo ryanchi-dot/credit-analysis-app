@@ -41,6 +41,10 @@ from coze_coding_utils.log.loop_trace import init_run_config, init_agent_config
 # 超时配置常量
 TIMEOUT_SECONDS = 900  # 15分钟
 
+# 心跳配置常量
+HEARTBEAT_INTERVAL = 25.0  # 25秒
+HEARTBEAT_MESSAGE = "⏳ 我还在努力生成报告中，请稍候..."
+
 class GraphService:
     def __init__(self):
         # 用于跟踪正在运行的任务（使用asyncio.Task）
