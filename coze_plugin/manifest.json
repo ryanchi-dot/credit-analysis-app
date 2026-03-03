@@ -1,0 +1,75 @@
+{
+  "manifest_version": "1.0",
+  "name": "银行信贷分析助手",
+  "version": "1.0.0",
+  "description": "基于企业公开信息生成专业的银行授信分析报告，包含申报方案分析、客户分析、财务分析、行业分析及同业比较、结论五大核心部分",
+  "icon": "📊",
+  "author": "Vibe Coding",
+  "api": {
+    "type": "openapi",
+    "url": "https://your-agent-url/stream_run",
+    "method": "POST"
+  },
+  "inputs": [
+    {
+      "name": "company_name",
+      "type": "string",
+      "required": true,
+      "description": "企业名称（如：腾讯控股有限公司、京东集团股份有限公司）",
+      "placeholder": "请输入企业名称"
+    },
+    {
+      "name": "analysis_focus",
+      "type": "select",
+      "required": false,
+      "description": "分析重点",
+      "options": [
+        "全面分析（推荐）",
+        "财务分析",
+        "行业研究",
+        "风险评估"
+      ],
+      "default": "全面分析（推荐）"
+    },
+    {
+      "name": "has_reference_materials",
+      "type": "boolean",
+      "required": false,
+      "description": "是否有参考材料",
+      "default": false
+    }
+  ],
+  "outputs": [
+    {
+      "name": "report_part1_url",
+      "type": "string",
+      "description": "第一部分：申报方案分析与客户分析 - 下载链接"
+    },
+    {
+      "name": "report_part2_url",
+      "type": "string",
+      "description": "第二部分：财务分析 - 下载链接"
+    },
+    {
+      "name": "report_part3_url",
+      "type": "string",
+      "description": "第三部分：行业分析及同业比较 - 下载链接"
+    },
+    {
+      "name": "report_part4_url",
+      "type": "string",
+      "description": "第四部分：结论 - 下载链接"
+    },
+    {
+      "name": "report_summary",
+      "type": "string",
+      "description": "报告摘要"
+    }
+  ],
+  "pricing": {
+    "free": true,
+    "description": "免费使用"
+  },
+  "category": "金融分析",
+  "tags": ["银行", "信贷分析", "企业分析", "财务报告", "授信"]
+}
