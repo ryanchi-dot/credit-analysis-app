@@ -7,8 +7,9 @@
   "author": "Vibe Coding",
   "api": {
     "type": "openapi",
-    "url": "https://your-agent-url/stream_run",
-    "method": "POST"
+    "url": "https://your-agent-url/run",
+    "method": "POST",
+    "contentType": "application/json"
   },
   "inputs": [
     {
@@ -20,23 +21,17 @@
     },
     {
       "name": "analysis_focus",
-      "type": "select",
+      "type": "string",
       "required": false,
       "description": "分析重点",
-      "options": [
-        "全面分析（推荐）",
-        "财务分析",
-        "行业研究",
-        "风险评估"
-      ],
       "default": "全面分析（推荐）"
     },
     {
       "name": "has_reference_materials",
-      "type": "boolean",
+      "type": "string",
       "required": false,
       "description": "是否有参考材料",
-      "default": false
+      "default": "否"
     }
   ],
   "outputs": [
