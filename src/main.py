@@ -315,6 +315,37 @@ async def http_run(request: Request) -> Dict[str, Any]:
     try:
         payload = await request.json()
 
+        # Coze插件参数适配：将Coze插件的参数转换为Agent期望的格式
+        if "company_name" in payload:
+            # 这是Coze插件的请求，需要转换为Agent的messages格式
+            company_name = payload.get("company_name", "")
+            analysis_focus = payload.get("analysis_focus", "全面分析（推荐）")
+            has_reference_materials = payload.get("has_reference_materials", "否")
+
+            # 构造用户消息
+            user_message = f"请为【{company_name}】生成授信分析报告。"
+
+            if analysis_focus and analysis_focus != "全面分析（推荐）":
+                user_message += f"分析重点是：{analysis_focus}。"
+
+            if has_reference_materials == "是":
+                user_message += "我将提供参考材料。"
+            else:
+                user_message += "无参考材料，请基于公开信息分析。"
+
+            # 转换为Agent期望的格式
+            agent_payload = {
+                "messages": [
+                    {
+                        "type": "user",
+                        "content": user_message
+                    }
+                ]
+            }
+
+            logger.info(f"Coze插件参数适配：{payload} -> {agent_payload}")
+            payload = agent_payload
+
         # 创建任务并记录 - 这是关键，让我们可以通过run_id取消任务
         task = asyncio.create_task(service.run(payload, ctx))
         service.running_tasks[run_id] = task
@@ -337,6 +368,18 @@ async def http_run(request: Request) -> Dict[str, Any]:
             result = {}
         if isinstance(result, dict):
             result["run_id"] = run_id
+
+        # Coze插件结果提取：从Agent返回值中提取报告链接
+        if isinstance(result, dict) and "messages" in result:
+            logger.info(f"尝试从Agent返回值中提取报告链接")
+            extracted_result = _extract_report_links(result)
+
+            if extracted_result:
+                logger.info(f"成功提取报告链接: {extracted_result}")
+                return extracted_result
+            else:
+                logger.warning(f"未能从Agent返回值中提取报告链接，返回原始结果")
+
         return result
 
     except json.JSONDecodeError as e:
@@ -365,6 +408,102 @@ async def http_run(request: Request) -> Dict[str, Any]:
         )
     finally:
         cozeloop.flush()
+
+
+def _extract_report_links(agent_result: Dict[str, Any]) -> Optional[Dict[str, str]]:
+    """
+    从Agent返回值中提取报告链接
+
+    Args:
+        agent_result: Agent返回的字典，包含messages字段
+
+    Returns:
+        提取的报告链接字典，格式为：
+        {
+            "report_part1_url": "链接1",
+            "report_part2_url": "链接2",
+            "report_part3_url": "链接3",
+            "report_part4_url": "链接4",
+            "report_summary": "摘要"
+        }
+    """
+    import re
+    import json
+
+    if "messages" not in agent_result:
+        return None
+
+    messages = agent_result["messages"]
+
+    # 收集所有消息的内容
+    all_content = ""
+    for msg in messages:
+        content = msg.get("content", "")
+        if isinstance(content, str):
+            all_content += content + "\n"
+
+    logger.info(f"收集到的Agent响应内容长度: {len(all_content)}")
+
+    # 尝试从内容中提取JSON格式的报告链接
+    # 查找包含"word_url"的JSON
+    json_pattern = r'\{[^}]*"word_url"[^}]*\}'
+    json_matches = re.findall(json_pattern, all_content, re.DOTALL)
+
+    if json_matches:
+        logger.info(f"找到{len(json_matches)}个包含word_url的JSON")
+
+        # 提取4个部分的链接
+        report_links = {}
+        summary = ""
+
+        for i, json_str in enumerate(json_matches):
+            try:
+                data = json.loads(json_str)
+                word_url = data.get("word_url")
+                part_number = data.get("part_number", i + 1)
+
+                if word_url:
+                    report_links[f"report_part{part_number}_url"] = word_url
+            except Exception as e:
+                logger.warning(f"解析JSON失败: {e}, JSON: {json_str}")
+
+        # 如果提取到了4个链接，返回结果
+        if len(report_links) >= 1:
+            # 生成摘要（取前200字）
+            summary = all_content[:200] + "..." if len(all_content) > 200 else all_content
+
+            result = {
+                "report_part1_url": report_links.get("report_part1_url", ""),
+                "report_part2_url": report_links.get("report_part2_url", ""),
+                "report_part3_url": report_links.get("report_part3_url", ""),
+                "report_part4_url": report_links.get("report_part4_url", ""),
+                "report_summary": summary
+            }
+
+            logger.info(f"提取结果: {result}")
+            return result
+
+    # 如果没有找到JSON，尝试用正则表达式提取URL
+    url_pattern = r'https?://[^\s<>"]+\.docx?[^\s<>"]*'
+    url_matches = re.findall(url_pattern, all_content)
+
+    if url_matches:
+        logger.info(f"找到{len(url_matches)}个Word文档URL")
+
+        result = {
+            "report_part1_url": url_matches[0] if len(url_matches) > 0 else "",
+            "report_part2_url": url_matches[1] if len(url_matches) > 1 else "",
+            "report_part3_url": url_matches[2] if len(url_matches) > 2 else "",
+            "report_part4_url": url_matches[3] if len(url_matches) > 3 else "",
+            "report_summary": all_content[:200] + "..." if len(all_content) > 200 else all_content
+        }
+
+        logger.info(f"提取结果: {result}")
+        return result
+
+    # 都没有找到，返回None
+    logger.warning("未能从Agent响应中提取报告链接")
+    return None
 
 
 HEADER_X_WORKFLOW_STREAM_MODE = "x-workflow-stream-mode"
