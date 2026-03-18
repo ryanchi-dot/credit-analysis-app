@@ -1,14 +1,7 @@
-# Streamlit - Web应用框架
-streamlit==1.39.0
-
-# HTTP请求
-requests==2.31.0
-
-# 文件处理
-python-docx==1.1.0
-PyPDF2==3.0.1
-openpyxl==3.1.2
-Pillow==10.1.0
-
-# 工具库
-python-dotenv==1.0.0
+streamlit>=1.28.0
+requests
+python-docx
+PyPDF2
+openpyxl
+Pillow>=10.0.0
+python-dotenv
