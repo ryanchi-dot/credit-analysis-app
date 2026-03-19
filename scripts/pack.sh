@@ -10,5 +10,5 @@ if command -v uv &>/dev/null && [ -f "pyproject.toml" ]; then
   uv export --frozen --no-hashes --no-dev | grep -v "^#" | grep -v "^$" | grep -v "^    " | sed 's/ ;.*//' > requirements.txt
 else
   echo "[pack] pip fallback mode: freezing dependencies"
-  pip freeze --exclude watchdog > requirements.txt
 fi
+pip freeze --exclude watchdog > requirements.txt
