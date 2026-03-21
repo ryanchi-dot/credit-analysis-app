@@ -12,3 +12,8 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0
+      - key: AGENT_API_URL
+        # 请在Render平台上手动设置，格式：https://你的coze-bot-url/stream_run
+        sync: false
+      - key: AGENT_API_KEY
+        sync: false
