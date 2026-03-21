@@ -23,6 +23,11 @@ class AgentClient:
         self.api_url = api_url or os.getenv('AGENT_API_URL', 'http://localhost:8000/run')
         self.api_key = api_key or os.getenv('AGENT_API_KEY', '')
         self.timeout = 900  # 15分钟超时
+        
+        # 调试信息
+        print(f"[AgentClient] 初始化完成")
+        print(f"[AgentClient] API URL: {self.api_url}")
+        print(f"[AgentClient] API Key已设置: {bool(self.api_key)}")
     
     def analyze_company(
         self, 
@@ -45,6 +50,14 @@ class AgentClient:
         Returns:
             智能体返回的结果
         """
+        # 重新读取环境变量（确保在Docker环境中能正确获取）
+        self.api_url = os.getenv('AGENT_API_URL', 'http://localhost:8000/run')
+        self.api_key = os.getenv('AGENT_API_KEY', '')
+        
+        print(f"[AgentClient] 开始分析企业: {company_name}")
+        print(f"[AgentClient] 当前API URL: {self.api_url}")
+        print(f"[AgentClient] API Key已设置: {bool(self.api_key)}")
+        
         # 构造用户消息
         user_message = f"请为【{company_name}】生成授信分析报告。"
         

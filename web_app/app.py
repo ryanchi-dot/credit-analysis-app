@@ -12,6 +12,16 @@ import streamlit as st
 import os
 from datetime import datetime
 from typing import Optional, List, Dict, Any
+from dotenv import load_dotenv
+
+# 加载环境变量
+load_dotenv()
+
+# 调试：打印环境变量（仅在开发环境）
+if os.getenv('DEBUG'):
+    st.write("🔍 环境变量调试:")
+    st.write(f"AGENT_API_URL: {os.getenv('AGENT_API_URL', '未设置')}")
+    st.write(f"AGENT_API_KEY: {os.getenv('AGENT_API_KEY', '未设置')[:20]}..." if os.getenv('AGENT_API_KEY') else "AGENT_API_KEY: 未设置")
 
 # 导入自定义模块
 from database import db
