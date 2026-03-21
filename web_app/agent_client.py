@@ -55,9 +55,6 @@ class AgentClient:
         print(f"[AgentClient] 实际使用 API URL: {self.api_url}")
         
         # 处理API URL
-        # 如果URL已经包含 /stream_run，直接使用
-        # 如果URL是 /run 结尾，替换为 /stream_run
-        # 如果URL没有路径，添加 /stream_run
         if '/stream_run' in self.api_url:
             stream_url = self.api_url
             print(f"[AgentClient] 检测到 /stream_run 接口，直接使用: {stream_url}")
@@ -108,7 +105,6 @@ class AgentClient:
             )
             
             print(f"[AgentClient] 响应状态码: {response.status_code}")
-            print(f"[AgentClient] 响应headers: {dict(response.headers)}")
             
             if response.status_code != 200:
                 error_text = response.text[:500]
@@ -116,71 +112,77 @@ class AgentClient:
                 yield f"❌ API请求失败: {response.status_code}\n\n{error_text}"
                 return
             
-            # 处理流式响应
+            # 处理SSE流式响应
             full_content = ""
             
-            # Coze API返回的是连续的JSON对象流，每行一个JSON
-            # 格式：{"answer": "文本片段", ...}
-            buffer = ""
-            
-            for chunk in response.iter_content(chunk_size=None, decode_unicode=True):
-                if chunk:
-                    buffer += chunk
+            # 使用iter_lines处理SSE格式
+            for line in response.iter_lines():
+                if not line:
+                    continue
+                
+                line_text = line.decode('utf-8')
+                
+                # 跳过空行
+                if not line_text.strip():
+                    continue
+                
+                print(f"[AgentClient] 收到行: {line_text[:150]}...")
+                
+                # 处理SSE格式的两种行：
+                # 1. event: message（事件类型，可以忽略）
+                # 2. data: {...}（数据内容，需要解析）
+                
+                if line_text.startswith('event:'):
+                    # 事件类型行，忽略
+                    print(f"[AgentClient] 跳过event行")
+                    continue
+                
+                if line_text.startswith('data:'):
+                    # 数据行，提取data:后面的JSON
+                    data_text = line_text[5:].strip()  # 移除 'data:' 前缀
                     
-                    # 尝试按行分割并解析每个JSON对象
-                    while '\n' in buffer or '}\n{' in buffer or (buffer.strip().startswith('{') and buffer.strip().endswith('}')):
-                        # 方法1: 按换行符分割
-                        if '\n' in buffer:
-                            lines = buffer.split('\n', 1)
-                            line = lines[0]
-                            buffer = lines[1] if len(lines) > 1 else ""
-                        # 方法2: 尝试找到完整的JSON对象
-                        elif buffer.strip():
-                            # 尝试解析缓冲区中的完整JSON
-                            try:
-                                # 找到第一个完整JSON对象
-                                decoder = json.JSONDecoder()
-                                obj, idx = decoder.raw_decode(buffer)
-                                line = json.dumps(obj)
-                                buffer = buffer[idx:].lstrip()
-                            except:
-                                # 如果解析失败，等待更多数据
-                                break
-                        else:
+                    # 检查是否结束
+                    if data_text == '[DONE]':
+                        print("[AgentClient] 收到[DONE]，流式响应结束")
+                        break
+                    
+                    # 解析JSON
+                    try:
+                        data = json.loads(data_text)
+                        
+                        # 打印完整数据结构
+                        print(f"[AgentClient] 完整数据: {json.dumps(data, ensure_ascii=False)[:300]}")
+                        
+                        # 提取文本内容（根据type字段判断）
+                        msg_type = data.get('type')
+                        
+                        if msg_type == 'answer':
+                            # answer类型的消息，提取content字段
+                            content = data.get('content', '')
+                            
+                            if content:
+                                print(f"[AgentClient] 提取到content: {content[:50]}...")
+                                full_content += content
+                                yield content
+                        
+                        elif msg_type == 'message_end':
+                            # 消息结束
+                            print("[AgentClient] 收到message_end，流式响应结束")
                             break
                         
-                        # 处理每一行
-                        if not line.strip():
-                            continue
-                        
-                        print(f"[AgentClient] 收到行: {line[:150]}...")
-                        
-                        # 解析JSON
-                        try:
-                            data = json.loads(line)
-                            
-                            # 提取answer字段
-                            answer = data.get('answer')
-                            
-                            if answer and isinstance(answer, str):
-                                print(f"[AgentClient] 提取到answer: {answer}")
-                                full_content += answer
-                                yield answer
-                            
-                            # 检查是否结束
-                            if data.get('message_end'):
-                                print("[AgentClient] 检测到message_end，流式响应结束")
-                                break
-                        
-                        except json.JSONDecodeError as e:
-                            print(f"[AgentClient] JSON解析失败: {e}, 数据: {line[:100]}")
-                            continue
-                        
-                        except Exception as e:
-                            print(f"[AgentClient] 处理数据时出错: {e}")
-                            import traceback
-                            traceback.print_exc()
-                            continue
+                        # 其他类型（如message_start）可以忽略
+                        else:
+                            print(f"[AgentClient] 忽略type={msg_type}的消息")
+                    
+                    except json.JSONDecodeError as e:
+                        print(f"[AgentClient] JSON解析失败: {e}, 数据: {data_text[:100]}")
+                        continue
+                    
+                    except Exception as e:
+                        print(f"[AgentClient] 处理数据时出错: {e}")
+                        import traceback
+                        traceback.print_exc()
+                        continue
             
             print(f"[AgentClient] 流式对话完成，总长度: {len(full_content)}")
         
