@@ -160,3 +160,9 @@ dependencies = [
     "yarl==1.22.0",
     "zstandard==0.25.0",
 ]
+
+[tool.uv]
+# 使用阿里云镜像作为默认源，替代 pypi.org
+[[tool.uv.index]]
+url = "https://mirrors.aliyun.com/pypi/simple/"
+default = true
