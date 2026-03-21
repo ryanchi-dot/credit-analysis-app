@@ -370,11 +370,10 @@ def handle_chat_input():
         # 保存到历史记录
         save_to_history(prompt)
         
-        # 清空文件上传器
-        if uploaded_files:
-            st.session_state.file_uploader = []
+        # 不需要手动清空文件上传器，Streamlit会自动管理
+        # 如果需要清空，可以使用其他方式（如创建新的session）
         
-        # 刷新页面
+        # 刷新页面以显示新消息
         st.rerun()
 
 
