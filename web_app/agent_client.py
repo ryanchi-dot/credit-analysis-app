@@ -87,21 +87,37 @@ class AgentClient:
         
         # 调用API
         try:
+            print(f"[AgentClient] 发送请求到: {self.api_url}")
+            print(f"[AgentClient] 请求payload: {json.dumps(payload, ensure_ascii=False)}")
+            print(f"[AgentClient] 使用API Key: {self.api_key[:50]}..." if self.api_key else "[AgentClient] 未使用API Key")
+            
+            headers = {
+                'Content-Type': 'application/json',
+            }
+            if self.api_key:
+                headers['Authorization'] = f'Bearer {self.api_key}'
+            
+            print(f"[AgentClient] 请求headers: {headers}")
+            
             response = requests.post(
                 self.api_url,
                 json=payload,
-                headers={
-                    'Content-Type': 'application/json',
-                    'Authorization': f'Bearer {self.api_key}' if self.api_key else ''
-                },
+                headers=headers,
                 timeout=self.timeout
             )
+            
+            print(f"[AgentClient] 响应状态码: {response.status_code}")
+            print(f"[AgentClient] 响应内容: {response.text[:500]}..." if len(response.text) > 500 else f"[AgentClient] 响应内容: {response.text}")
             
             response.raise_for_status()
             result = response.json()
             
+            print(f"[AgentClient] 解析后的JSON: {json.dumps(result, ensure_ascii=False)[:500]}")
+            
             # 提取报告链接
             report_links = self._extract_report_links(result)
+            
+            print(f"[AgentClient] 提取到的报告链接: {report_links}")
             
             if report_links:
                 return {
@@ -111,6 +127,7 @@ class AgentClient:
                 }
             else:
                 # 如果没有提取到报告链接，返回原始响应
+                print(f"[AgentClient] 未提取到报告链接，返回原始响应")
                 return {
                     "success": False,
                     "message": "未提取到报告链接",
