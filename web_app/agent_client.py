@@ -157,13 +157,21 @@ class AgentClient:
                         msg_type = data.get('type')
                         
                         if msg_type == 'answer':
-                            # answer类型的消息，提取content字段
-                            content = data.get('content', '')
+                            # answer类型的消息
+                            # content是一个字典: {"answer": "文本", "thinking": null, ...}
+                            content_obj = data.get('content', {})
                             
-                            if content:
-                                print(f"[AgentClient] 提取到content: {content[:50]}...")
-                                full_content += content
-                                yield content
+                            # 确保content_obj是字典
+                            if isinstance(content_obj, dict):
+                                answer_text = content_obj.get('answer', '')
+                            else:
+                                # 如果不是字典，尝试直接当作字符串
+                                answer_text = str(content_obj)
+                            
+                            if answer_text:
+                                print(f"[AgentClient] 提取到answer: {answer_text[:50]}..." if len(answer_text) > 50 else f"[AgentClient] 提取到answer: {answer_text}")
+                                full_content += answer_text
+                                yield answer_text
                         
                         elif msg_type == 'message_end':
                             # 消息结束
