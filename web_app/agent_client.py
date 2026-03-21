@@ -54,14 +54,19 @@ class AgentClient:
         print(f"[AgentClient] 环境变量 AGENT_API_KEY: {'已设置' if self.api_key else '未设置'}")
         print(f"[AgentClient] 实际使用 API URL: {self.api_url}")
         
-        # 根据API URL推断流式接口
-        # 如果是 /run 接口，改用 /stream_run
-        if self.api_url.endswith('/run'):
+        # 处理API URL
+        # 如果URL已经包含 /stream_run，直接使用
+        # 如果URL是 /run 结尾，替换为 /stream_run
+        # 如果URL没有路径，添加 /stream_run
+        if '/stream_run' in self.api_url:
+            stream_url = self.api_url
+            print(f"[AgentClient] 检测到 /stream_run 接口，直接使用: {stream_url}")
+        elif self.api_url.endswith('/run'):
             stream_url = self.api_url.replace('/run', '/stream_run')
             print(f"[AgentClient] 检测到 /run 接口，改为使用流式接口: {stream_url}")
         else:
-            stream_url = self.api_url
-            print(f"[AgentClient] 使用原始接口: {stream_url}")
+            stream_url = self.api_url.rstrip('/') + '/stream_run'
+            print(f"[AgentClient] 未检测到接口路径，添加 /stream_run: {stream_url}")
         
         print(f"[AgentClient] 用户消息: {user_message[:100]}...")
         print(f"{'='*60}\n")
