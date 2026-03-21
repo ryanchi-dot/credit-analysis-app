@@ -170,12 +170,28 @@ class AgentClient:
                             
                             # 确保content是字符串
                             if content:
+                                # 多重保护：确保content一定是字符串
+                                if isinstance(content, dict):
+                                    # 如果content是字典，尝试提取text或content字段
+                                    print(f"[AgentClient] content是字典: {content}")
+                                    if 'text' in content:
+                                        content = content['text']
+                                    elif 'content' in content:
+                                        content = content['content']
+                                    else:
+                                        # 如果没有这些字段，转为JSON字符串
+                                        content = json.dumps(content, ensure_ascii=False)
+                                
                                 if not isinstance(content, str):
                                     print(f"[AgentClient] content不是字符串，尝试转换: {type(content)}")
                                     content = str(content)
                                 
-                                full_content += content
-                                yield content
+                                # 最终检查
+                                if isinstance(content, str):
+                                    full_content += content
+                                    yield content
+                                else:
+                                    print(f"[AgentClient] 转换失败，跳过此内容")
                             else:
                                 print(f"[AgentClient] 未找到有效content字段，跳过")
                         
