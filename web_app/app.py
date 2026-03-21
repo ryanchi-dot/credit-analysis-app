@@ -2,31 +2,26 @@
 银行信贷分析助手 - Streamlit主应用
 
 功能：
-- 用户注册/登录
-- 多轮对话
+- 无需注册，直接使用
+- 对话式界面
 - 文件上传
+- 实时进度显示
 - 历史记录
-- 用户数据隔离
 """
 import streamlit as st
 import os
+import time
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from dotenv import load_dotenv
+import uuid
 
 # 加载环境变量
 load_dotenv()
 
-# 调试：打印环境变量（仅在开发环境）
-if os.getenv('DEBUG'):
-    st.write("🔍 环境变量调试:")
-    st.write(f"AGENT_API_URL: {os.getenv('AGENT_API_URL', '未设置')}")
-    st.write(f"AGENT_API_KEY: {os.getenv('AGENT_API_KEY', '未设置')[:20]}..." if os.getenv('AGENT_API_KEY') else "AGENT_API_KEY: 未设置")
-
 # 导入自定义模块
-from database import db
 from agent_client import agent_client
-from utils import file_storage, format_file_size, is_allowed_file_type, get_file_type, generate_session_id
+from utils import file_storage, format_file_size, is_allowed_file_type, get_file_type
 
 
 # ============ 页面配置 ============
@@ -57,21 +52,12 @@ st.markdown("""
             background-color: #f9f9f9;
         }
         
-        .user-message {
+        .progress-box {
             background-color: #e3f2fd;
             padding: 1rem;
             border-radius: 10px;
             margin-bottom: 1rem;
-            text-align: right;
-        }
-        
-        .assistant-message {
-            background-color: #ffffff;
-            padding: 1rem;
-            border-radius: 10px;
-            margin-bottom: 1rem;
-            text-align: left;
-            border-left: 4px solid #1e3a5f;
+            border-left: 4px solid #2196f3;
         }
         
         .report-link {
@@ -107,111 +93,77 @@ st.markdown("""
 # ============ 初始化Session State ============
 def init_session_state():
     """初始化session state"""
-    if 'current_user' not in st.session_state:
-        st.session_state.current_user = None
+    # 生成唯一用户ID（基于浏览器session）
+    if 'user_id' not in st.session_state:
+        st.session_state.user_id = f"guest_{uuid.uuid4().hex[:16]}"
     
+    # 当前会话ID
     if 'current_session_id' not in st.session_state:
-        st.session_state.current_session_id = None
+        st.session_state.current_session_id = f"session_{uuid.uuid4().hex[:16]}"
     
+    # 消息列表
     if 'messages' not in st.session_state:
         st.session_state.messages = []
     
-    if 'uploaded_files' not in st.session_state:
-        st.session_state.uploaded_files = []
-
-
-# ============ 用户认证 ============
-def show_login_page():
-    """显示登录页面"""
-    st.markdown('<div class="main-title">🏦 银行信贷分析助手</div>', unsafe_allow_html=True)
-    st.markdown("---")
+    # 历史会话
+    if 'history' not in st.session_state:
+        st.session_state.history = []
     
-    tab1, tab2 = st.tabs(["登录", "注册"])
-    
-    with tab1:
-        st.subheader("登录")
-        username = st.text_input("用户名", key="login_username")
-        password = st.text_input("密码", type="password", key="login_password")
-        
-        if st.button("登录", key="login_button"):
-            if username and password:
-                user = db.verify_user(username, password)
-                if user:
-                    st.session_state.current_user = user
-                    st.success("登录成功！")
-                    st.rerun()
-                else:
-                    st.error("用户名或密码错误！")
-            else:
-                st.warning("请输入用户名和密码")
-    
-    with tab2:
-        st.subheader("注册")
-        new_username = st.text_input("用户名", key="register_username")
-        new_password = st.text_input("密码", type="password", key="register_password")
-        confirm_password = st.text_input("确认密码", type="password", key="confirm_password")
-        
-        if st.button("注册", key="register_button"):
-            if new_username and new_password:
-                if new_password != confirm_password:
-                    st.error("两次密码输入不一致！")
-                elif len(new_password) < 6:
-                    st.error("密码长度不能少于6位！")
-                else:
-                    user_id = db.create_user(new_username, new_password)
-                    if user_id:
-                        st.success("注册成功！请登录")
-                    else:
-                        st.error("用户名已存在！")
-            else:
-                st.warning("请填写完整信息")
+    # 是否正在分析
+    if 'is_analyzing' not in st.session_state:
+        st.session_state.is_analyzing = False
 
 
 # ============ 侧边栏 ============
 def show_sidebar():
     """显示侧边栏"""
     with st.sidebar:
-        # 用户信息
-        st.markdown("### 👤 用户信息")
-        user = st.session_state.current_user
-        st.write(f"**用户名**: {user['username']}")
-        st.write(f"**用户ID**: {user['user_id'][:20]}...")
+        st.markdown("### 🏦 银行信贷分析助手")
+        st.markdown("---")
+        
+        # 使用说明
+        st.markdown("### 📖 使用说明")
+        st.markdown("""
+        1. **输入企业名称**或直接描述需求
+        2. **上传参考资料**（可选）
+        3. 点击发送，等待分析完成
+        4. 下载生成的报告
+        
+        **预计耗时**：5-8分钟
+        """)
         
         st.markdown("---")
         
         # 历史记录
         st.markdown("### 📝 历史记录")
-        sessions = db.get_user_sessions(user['user_id'])
-        
-        if sessions:
-            for session in sessions:
-                session_title = session['title']
-                session_time = datetime.fromisoformat(session['created_at']).strftime('%Y-%m-%d %H:%M')
-                
+        if st.session_state.history:
+            for i, session in enumerate(st.session_state.history):
                 col1, col2 = st.columns([4, 1])
                 with col1:
-                    if st.button(session_title, key=f"session_{session['session_id']}", help=session_time):
-                        load_session(session['session_id'])
-                
+                    if st.button(
+                        f"{session['title'][:20]}...",
+                        key=f"history_{i}",
+                        help=session['created_at']
+                    ):
+                        load_history_session(i)
                 with col2:
-                    if st.button("🗑️", key=f"delete_{session['session_id']}", help="删除会话"):
-                        if delete_session(session['session_id']):
-                            st.success("会话已删除")
-                            st.rerun()
+                    if st.button("🗑️", key=f"delete_{i}", help="删除"):
+                        st.session_state.history.pop(i)
+                        st.rerun()
         else:
             st.info("暂无历史记录")
         
         st.markdown("---")
         
         # 新建会话
-        if st.button("➕ 新建会话"):
+        if st.button("➕ 新建会话", use_container_width=True):
             create_new_session()
         
         st.markdown("---")
         
-        # 退出登录
-        if st.button("🚪 退出登录"):
-            logout()
+        # 清空当前会话
+        if st.button("🗑️ 清空当前会话", use_container_width=True):
+            clear_current_session()
 
 
 # ============ 主界面 ============
@@ -224,134 +176,12 @@ def show_main_page():
     st.markdown('<div class="main-title">🏦 银行信贷分析助手</div>', unsafe_allow_html=True)
     st.markdown("---")
     
-    # 显示当前会话信息
-    if st.session_state.current_session_id:
-        session = db.get_session(st.session_state.current_session_id)
-        if session:
-            st.info(f"当前会话: {session['title']}")
-    
-    # 聊天区域
-    st.markdown("### 💬 对话区域")
-    
     # 显示消息
     display_messages()
     
-    # 消息输入区域
+    # 输入区域
     st.markdown("---")
-    
-    col1, col2 = st.columns([4, 1])
-    
-    with col1:
-        # 文件上传
-        uploaded_files = st.file_uploader(
-            "上传参考资料（可选）",
-            type=['pdf', 'doc', 'docx', 'xls', 'xlsx', 'jpg', 'jpeg', 'png', 'gif'],
-            accept_multiple_files=True,
-            key="file_uploader"
-        )
-        
-        # 企业名称输入
-        company_name = st.text_input(
-            "企业名称（必填）",
-            placeholder="请输入企业全称，如：腾讯控股有限公司",
-            key="company_name"
-        )
-        
-        # 分析重点选择
-        analysis_focus = st.selectbox(
-            "分析重点",
-            ["全面分析（推荐）", "财务分析", "行业研究", "风险评估"],
-            key="analysis_focus"
-        )
-        
-        # 是否有参考材料
-        has_materials = "是" if uploaded_files else "否"
-        
-        # 发送按钮
-        if st.button("📤 开始分析", key="send_button", use_container_width=True):
-            if not company_name:
-                st.error("请输入企业名称！")
-            else:
-                # 处理上传的文件
-                uploaded_file_info = []
-                for uploaded_file in uploaded_files:
-                    if is_allowed_file_type(uploaded_file.name):
-                        # 保存文件
-                        file_path = file_storage.save_file(
-                            st.session_state.current_user['user_id'],
-                            uploaded_file.name,
-                            uploaded_file.read()
-                        )
-                        
-                        # 保存文件记录到数据库
-                        db.save_file(
-                            st.session_state.current_user['user_id'],
-                            st.session_state.current_session_id,
-                            uploaded_file.name,
-                            file_path,
-                            uploaded_file.size,
-                            get_file_type(uploaded_file.name)
-                        )
-                        
-                        uploaded_file_info.append({
-                            'name': uploaded_file.name,
-                            'size': format_file_size(uploaded_file.size),
-                            'type': get_file_type(uploaded_file.name)
-                        })
-                    
-                    # 清空文件上传器
-                    st.session_state.uploaded_files = []
-                
-                # 发送用户消息
-                user_message = {
-                    'role': 'user',
-                    'content': f"请为【{company_name}】生成授信分析报告。",
-                    'company_name': company_name,
-                    'analysis_focus': analysis_focus,
-                    'has_materials': has_materials,
-                    'files': uploaded_file_info,
-                    'timestamp': datetime.now().isoformat()
-                }
-                
-                add_message(user_message)
-                
-                # 调用智能体
-                with st.spinner("智能体正在分析中，请稍候...（预计需要5-8分钟）"):
-                    result = agent_client.analyze_company(
-                        company_name=company_name,
-                        analysis_focus=analysis_focus,
-                        has_reference_materials=has_materials,
-                        user_id=st.session_state.current_user['user_id'],
-                        session_id=st.session_state.current_session_id
-                    )
-                
-                # 显示智能体回复
-                if result.get('success'):
-                    report_links = result.get('report_links', {})
-                    
-                    assistant_message = {
-                        'role': 'assistant',
-                        'content': f"✅ 分析完成！已为【{company_name}】生成授信分析报告。",
-                        'report_links': report_links,
-                        'timestamp': datetime.now().isoformat()
-                    }
-                    
-                    add_message(assistant_message)
-                else:
-                    assistant_message = {
-                        'role': 'assistant',
-                        'content': f"❌ 分析失败：{result.get('message', '未知错误')}",
-                        'timestamp': datetime.now().isoformat()
-                    }
-                    
-                    add_message(assistant_message)
-    
-    with col2:
-        # 清空会话按钮
-        if st.button("🗑️ 清空会话", key="clear_button", use_container_width=True):
-            clear_current_session_messages()
-            st.success("会话已清空")
-            st.rerun()
+    show_input_area()
 
 
 # ============ 消息显示 ============
@@ -360,29 +190,28 @@ def display_messages():
     messages = st.session_state.messages
     
     if not messages:
-        st.info("还没有对话，请输入企业名称开始分析")
+        st.info("👋 欢迎使用银行信贷分析助手！\n\n请在下方输入企业名称或描述你的需求，我会为你生成专业的授信分析报告。")
         return
     
     for msg in messages:
         if msg['role'] == 'user':
-            with st.chat_message("user"):
-                st.markdown(f"**企业名称**: {msg.get('company_name', 'N/A')}")
-                st.markdown(f"**分析重点**: {msg.get('analysis_focus', 'N/A')}")
-                st.markdown(f"**参考材料**: {msg.get('has_materials', '否')}")
+            with st.chat_message("user", avatar="👤"):
+                st.markdown(msg['content'])
                 
                 # 显示上传的文件
                 if msg.get('files'):
-                    st.markdown("**上传文件**:")
+                    st.markdown("**📎 上传文件**:")
                     for file_info in msg['files']:
                         st.markdown(f"- {file_info['name']} ({file_info['size']})")
         
         elif msg['role'] == 'assistant':
-            with st.chat_message("assistant"):
+            with st.chat_message("assistant", avatar="🏦"):
                 st.markdown(msg['content'])
                 
                 # 显示报告链接
                 if msg.get('report_links'):
-                    st.markdown("**报告下载链接**:")
+                    st.markdown("---")
+                    st.markdown("**📥 报告下载链接**:")
                     
                     part1_url = msg['report_links'].get('report_part1_url')
                     part2_url = msg['report_links'].get('report_part2_url')
@@ -390,67 +219,218 @@ def display_messages():
                     part4_url = msg['report_links'].get('report_part4_url')
                     
                     if part1_url:
-                        st.markdown(f"1. [申报方案分析与客户分析]({part1_url})")
+                        st.markdown(f"1. [📄 申报方案分析与客户分析]({part1_url})")
                     if part2_url:
-                        st.markdown(f"2. [财务分析]({part2_url})")
+                        st.markdown(f"2. [📄 财务分析]({part2_url})")
                     if part3_url:
-                        st.markdown(f"3. [行业分析及同业比较]({part3_url})")
+                        st.markdown(f"3. [📄 行业分析及同业比较]({part3_url})")
                     if part4_url:
-                        st.markdown(f"4. [结论]({part4_url})")
+                        st.markdown(f"4. [📄 结论]({part4_url})")
 
 
-# ============ 会话管理 ============
-def create_new_session():
-    """创建新会话"""
-    session_id = db.create_session(
-        st.session_state.current_user['user_id'],
-        title=f"新对话 {datetime.now().strftime('%Y-%m-%d %H:%M')}"
-    )
+# ============ 输入区域 ============
+def show_input_area():
+    """显示输入区域"""
+    col1, col2 = st.columns([3, 1])
     
-    st.session_state.current_session_id = session_id
-    st.session_state.messages = []
+    with col1:
+        # 文本输入
+        user_input = st.chat_input(
+            "输入企业名称或描述你的需求...",
+            key="chat_input"
+        )
     
+    with col2:
+        # 文件上传
+        st.markdown("### 📎 上传文件")
+        uploaded_files = st.file_uploader(
+            "参考资料（可选）",
+            type=['pdf', 'doc', 'docx', 'xls', 'xlsx', 'jpg', 'jpeg', 'png'],
+            accept_multiple_files=True,
+            key="file_uploader",
+            label_visibility="collapsed"
+        )
+        
+        if uploaded_files:
+            st.info(f"已上传 {len(uploaded_files)} 个文件")
+    
+    # 处理用户输入
+    if user_input and not st.session_state.is_analyzing:
+        process_user_input(user_input, uploaded_files)
+
+
+# ============ 处理用户输入 ============
+def process_user_input(user_input: str, uploaded_files: List = None):
+    """处理用户输入"""
+    # 标记为正在分析
+    st.session_state.is_analyzing = True
+    
+    # 处理上传的文件
+    uploaded_file_info = []
+    if uploaded_files:
+        for uploaded_file in uploaded_files:
+            if is_allowed_file_type(uploaded_file.name):
+                # 保存文件
+                file_path = file_storage.save_file(
+                    st.session_state.user_id,
+                    uploaded_file.name,
+                    uploaded_file.read()
+                )
+                
+                uploaded_file_info.append({
+                    'name': uploaded_file.name,
+                    'size': format_file_size(uploaded_file.size),
+                    'type': get_file_type(uploaded_file.name),
+                    'path': file_path
+                })
+    
+    # 添加用户消息
+    user_message = {
+        'role': 'user',
+        'content': user_input,
+        'files': uploaded_file_info,
+        'timestamp': datetime.now().isoformat()
+    }
+    
+    st.session_state.messages.append(user_message)
+    
+    # 提取企业名称（简单提取，实际可以更智能）
+    company_name = extract_company_name(user_input)
+    
+    # 显示进度
+    with st.status("正在分析中...", expanded=True) as status:
+        st.markdown(f"**📋 分析企业**: {company_name}")
+        st.markdown(f"**⏱️ 预计耗时**: 5-8分钟")
+        st.markdown("---")
+        
+        # 进度步骤
+        progress_steps = [
+            ("🔍 正在搜集企业公开信息...", "企业基本信息、工商数据"),
+            ("📊 正在分析财务数据...", "财务报表、经营指标"),
+            ("🏢 正在进行行业分析...", "行业趋势、竞争格局"),
+            ("📝 正在生成分析报告...", "整合信息、生成文档"),
+        ]
+        
+        progress_bar = st.progress(0)
+        progress_text = st.empty()
+        
+        # 模拟进度更新（实际应该从智能体获取）
+        for i, (step, detail) in enumerate(progress_steps):
+            progress_text.markdown(f"{step}")
+            st.markdown(f"<small style='color:gray'>{detail}</small>", unsafe_allow_html=True)
+            progress_bar.progress((i + 1) / len(progress_steps))
+            time.sleep(0.5)  # 短暂显示，让用户看到进度
+        
+        # 调用智能体API
+        result = agent_client.analyze_company(
+            company_name=company_name,
+            analysis_focus="全面分析（推荐）",
+            has_reference_materials="是" if uploaded_file_info else "否",
+            user_id=st.session_state.user_id,
+            session_id=st.session_state.current_session_id
+        )
+        
+        # 完成进度
+        progress_bar.progress(1.0)
+        progress_text.markdown("✅ 分析完成！")
+        status.update(label="分析完成", state="complete")
+    
+    # 显示智能体回复
+    if result.get('success'):
+        report_links = result.get('report_links', {})
+        
+        assistant_message = {
+            'role': 'assistant',
+            'content': f"✅ 已为【{company_name}】生成授信分析报告！\n\n报告包含以下部分：\n1. 申报方案分析与客户分析\n2. 财务分析\n3. 行业分析及同业比较\n4. 结论\n\n请点击下方链接下载报告。",
+            'report_links': report_links,
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        st.session_state.messages.append(assistant_message)
+        
+        # 保存到历史记录
+        save_to_history(company_name)
+    else:
+        assistant_message = {
+            'role': 'assistant',
+            'content': f"❌ 分析失败：{result.get('message', '未知错误')}\n\n请检查企业名称是否正确，或稍后重试。",
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        st.session_state.messages.append(assistant_message)
+    
+    # 标记分析完成
+    st.session_state.is_analyzing = False
+    
+    # 清空文件上传器
+    st.session_state.uploaded_files = []
+    
+    # 刷新页面
     st.rerun()
 
 
-def load_session(session_id: str):
-    """加载会话"""
-    session = db.get_session(session_id)
-    if session and session['user_id'] == st.session_state.current_user['user_id']:
-        st.session_state.current_session_id = session_id
-        st.session_state.messages = db.get_session_messages(session_id)
-        st.rerun()
-    else:
-        st.error("无法加载该会话")
-
-
-def delete_session(session_id: str) -> bool:
-    """删除会话"""
-    return db.delete_session(st.session_state.current_user['user_id'], session_id)
-
-
-def clear_current_session_messages():
-    """清空当前会话的消息"""
-    st.session_state.messages = []
-
-
-def add_message(message: Dict[str, Any]):
-    """添加消息到当前会话"""
-    st.session_state.messages.append(message)
+# ============ 工具函数 ============
+def extract_company_name(text: str) -> str:
+    """从用户输入中提取企业名称"""
+    # 简单的提取逻辑：查找【】中的内容
+    import re
+    match = re.search(r'【(.+?)】', text)
+    if match:
+        return match.group(1)
     
-    # 保存到数据库
-    if st.session_state.current_session_id:
-        db.add_message(
-            st.session_state.current_session_id,
-            message['role'],
-            message.get('content', '')
-        )
+    # 如果没有【】，尝试查找常见格式
+    # 例如："分析腾讯"、"腾讯公司"等
+    common_suffixes = ['公司', '集团', '有限公司', '股份有限公司', '控股']
+    for suffix in common_suffixes:
+        if suffix in text:
+            # 提取包含后缀的词
+            words = text.split()
+            for word in words:
+                if suffix in word:
+                    return word
+    
+    # 如果都没匹配到，返回整个文本（去掉"分析"等动词）
+    verbs = ['分析', '生成', '请', '帮我', '为']
+    result = text
+    for verb in verbs:
+        result = result.replace(verb, '')
+    
+    return result.strip() or text.strip()
 
 
-def logout():
-    """退出登录"""
-    st.session_state.current_user = None
-    st.session_state.current_session_id = None
+def save_to_history(company_name: str):
+    """保存到历史记录"""
+    session = {
+        'session_id': st.session_state.current_session_id,
+        'title': f"{company_name} 授信分析",
+        'created_at': datetime.now().strftime('%Y-%m-%d %H:%M'),
+        'messages': st.session_state.messages.copy()
+    }
+    
+    # 添加到历史记录（保留最近20条）
+    st.session_state.history.insert(0, session)
+    if len(st.session_state.history) > 20:
+        st.session_state.history.pop()
+
+
+def create_new_session():
+    """创建新会话"""
+    st.session_state.current_session_id = f"session_{uuid.uuid4().hex[:16]}"
+    st.session_state.messages = []
+    st.rerun()
+
+
+def load_history_session(index: int):
+    """加载历史会话"""
+    if 0 <= index < len(st.session_state.history):
+        session = st.session_state.history[index]
+        st.session_state.current_session_id = session['session_id']
+        st.session_state.messages = session['messages'].copy()
+        st.rerun()
+
+
+def clear_current_session():
+    """清空当前会话"""
     st.session_state.messages = []
     st.rerun()
 
@@ -461,15 +441,8 @@ def main():
     # 初始化session state
     init_session_state()
     
-    # 检查用户是否登录
-    if not st.session_state.current_user:
-        show_login_page()
-    else:
-        # 如果还没有当前会话，创建一个
-        if not st.session_state.current_session_id:
-            create_new_session()
-        
-        show_main_page()
+    # 显示主界面
+    show_main_page()
 
 
 if __name__ == "__main__":
