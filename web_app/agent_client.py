@@ -1,199 +1,179 @@
 """
-智能体API调用模块
+智能体API调用模块 - 流式对话版本
 
-负责调用银行信贷分析智能体API。
+负责调用银行信贷分析智能体API，支持流式响应。
 """
 import os
 import json
 import requests
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Generator
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 class AgentClient:
-    """智能体API客户端"""
+    """智能体API客户端 - 支持流式对话"""
     
-    def __init__(self, api_url: str = None, api_key: str = None):
-        """
-        初始化智能体客户端
-        
-        Args:
-            api_url: 智能体API URL
-            api_key: API密钥（可选）
-        """
-        self.api_url = api_url or os.getenv('AGENT_API_URL', 'http://localhost:8000/run')
-        self.api_key = api_key or os.getenv('AGENT_API_KEY', '')
+    def __init__(self):
+        """初始化智能体客户端"""
+        self.api_url = os.getenv('AGENT_API_URL', 'http://localhost:8000')
+        self.api_key = os.getenv('AGENT_API_KEY', '')
         self.timeout = 900  # 15分钟超时
         
-        # 调试信息
+        # 自动推断流式接口地址
+        if '/run' in self.api_url:
+            # 如果是 /run 接口，改为流式接口
+            self.stream_url = self.api_url.replace('/run', '/v1/chat/completions')
+        else:
+            self.stream_url = f"{self.api_url}/v1/chat/completions"
+        
         print(f"[AgentClient] 初始化完成")
         print(f"[AgentClient] API URL: {self.api_url}")
+        print(f"[AgentClient] Stream URL: {self.stream_url}")
         print(f"[AgentClient] API Key已设置: {bool(self.api_key)}")
     
-    def analyze_company(
-        self, 
-        company_name: str, 
-        analysis_focus: str = "全面分析（推荐）",
-        has_reference_materials: str = "否",
+    def chat_stream(
+        self,
+        user_message: str,
+        messages: list = None,
         user_id: str = None,
         session_id: str = None
-    ) -> Dict[str, Any]:
+    ) -> Generator[str, None, None]:
         """
-        调用智能体分析企业
+        流式对话
         
         Args:
-            company_name: 企业名称
-            analysis_focus: 分析重点
-            has_reference_materials: 是否有参考材料
-            user_id: 用户ID（用于会话隔离）
-            session_id: 会话ID（用于会话隔离）
+            user_message: 用户消息
+            messages: 历史消息列表
+            user_id: 用户ID
+            session_id: 会话ID
         
-        Returns:
-            智能体返回的结果
+        Yields:
+            流式响应的文本片段
         """
-        # 重新读取环境变量（确保在Docker环境中能正确获取）
-        self.api_url = os.getenv('AGENT_API_URL', 'http://localhost:8000/run')
+        # 重新读取环境变量
+        self.api_url = os.getenv('AGENT_API_URL', 'http://localhost:8000')
         self.api_key = os.getenv('AGENT_API_KEY', '')
         
-        print(f"[AgentClient] 开始分析企业: {company_name}")
-        print(f"[AgentClient] 当前API URL: {self.api_url}")
-        print(f"[AgentClient] API Key已设置: {bool(self.api_key)}")
-        
-        # 构造用户消息
-        user_message = f"请为【{company_name}】生成授信分析报告。"
-        
-        if analysis_focus and analysis_focus != "全面分析（推荐）":
-            user_message += f"分析重点是：{analysis_focus}。"
-        
-        if has_reference_materials == "是":
-            user_message += "我将提供参考材料。"
+        # 更新流式URL
+        if '/run' in self.api_url:
+            self.stream_url = self.api_url.replace('/run', '/v1/chat/completions')
         else:
-            user_message += "无参考材料，请基于公开信息分析。"
+            self.stream_url = f"{self.api_url}/v1/chat/completions"
         
-        # 构造请求参数
+        print(f"[AgentClient] 开始流式对话")
+        print(f"[AgentClient] Stream URL: {self.stream_url}")
+        print(f"[AgentClient] 用户消息: {user_message[:100]}...")
+        
+        # 构造OpenAI格式的消息
+        openai_messages = []
+        
+        # 添加历史消息
+        if messages:
+            for msg in messages:
+                openai_messages.append({
+                    "role": msg["role"],
+                    "content": msg["content"]
+                })
+        
+        # 添加当前用户消息
+        openai_messages.append({
+            "role": "user",
+            "content": user_message
+        })
+        
+        # 构造OpenAI兼容请求
         payload = {
-            "messages": [
-                {
-                    "type": "user",
-                    "content": user_message
-                }
-            ]
+            "model": "credit-analysis-agent",
+            "messages": openai_messages,
+            "stream": True,
+            "temperature": 0.7
         }
         
-        # 如果提供了user_id和session_id，添加到请求中
+        # 添加用户ID和会话ID（如果提供）
         if user_id:
             payload["user_id"] = user_id
         if session_id:
             payload["session_id"] = session_id
         
-        # 调用API
+        print(f"[AgentClient] 请求payload: {json.dumps(payload, ensure_ascii=False)[:200]}...")
+        
+        # 构造headers
+        headers = {
+            'Content-Type': 'application/json',
+        }
+        if self.api_key:
+            headers['Authorization'] = f'Bearer {self.api_key}'
+        
         try:
-            print(f"[AgentClient] 发送请求到: {self.api_url}")
-            print(f"[AgentClient] 请求payload: {json.dumps(payload, ensure_ascii=False)}")
-            print(f"[AgentClient] 使用API Key: {self.api_key[:50]}..." if self.api_key else "[AgentClient] 未使用API Key")
-            
-            headers = {
-                'Content-Type': 'application/json',
-            }
-            if self.api_key:
-                headers['Authorization'] = f'Bearer {self.api_key}'
-            
-            print(f"[AgentClient] 请求headers: {headers}")
-            
+            # 发送流式请求
             response = requests.post(
-                self.api_url,
+                self.stream_url,
                 json=payload,
                 headers=headers,
+                stream=True,
                 timeout=self.timeout
             )
             
             print(f"[AgentClient] 响应状态码: {response.status_code}")
-            print(f"[AgentClient] 响应内容: {response.text[:500]}..." if len(response.text) > 500 else f"[AgentClient] 响应内容: {response.text}")
             
-            response.raise_for_status()
-            result = response.json()
+            if response.status_code != 200:
+                error_msg = f"API请求失败: {response.status_code} - {response.text}"
+                print(f"[AgentClient] 错误: {error_msg}")
+                yield f"❌ {error_msg}"
+                return
             
-            print(f"[AgentClient] 解析后的JSON: {json.dumps(result, ensure_ascii=False)[:500]}")
+            # 处理流式响应
+            for line in response.iter_lines():
+                if line:
+                    line_text = line.decode('utf-8')
+                    
+                    # 跳过空行
+                    if not line_text.strip():
+                        continue
+                    
+                    # 处理SSE格式
+                    if line_text.startswith('data: '):
+                        data_text = line_text[6:]  # 移除 'data: ' 前缀
+                        
+                        # 检查是否结束
+                        if data_text.strip() == '[DONE]':
+                            print("[AgentClient] 流式响应结束")
+                            break
+                        
+                        # 解析JSON
+                        try:
+                            data = json.loads(data_text)
+                            
+                            # 提取内容
+                            if 'choices' in data and len(data['choices']) > 0:
+                                delta = data['choices'][0].get('delta', {})
+                                content = delta.get('content', '')
+                                
+                                if content:
+                                    yield content
+                            
+                        except json.JSONDecodeError as e:
+                            print(f"[AgentClient] JSON解析失败: {e}")
+                            continue
             
-            # 提取报告链接
-            report_links = self._extract_report_links(result)
-            
-            print(f"[AgentClient] 提取到的报告链接: {report_links}")
-            
-            if report_links:
-                return {
-                    "success": True,
-                    "report_links": report_links,
-                    "raw_response": result
-                }
-            else:
-                # 如果没有提取到报告链接，返回原始响应
-                print(f"[AgentClient] 未提取到报告链接，返回原始响应")
-                return {
-                    "success": False,
-                    "message": "未提取到报告链接",
-                    "raw_response": result
-                }
+            print("[AgentClient] 流式对话完成")
         
         except requests.Timeout:
-            return {
-                "success": False,
-                "message": f"请求超时（超过{self.timeout}秒）"
-            }
+            error_msg = "请求超时"
+            print(f"[AgentClient] 错误: {error_msg}")
+            yield f"❌ {error_msg}"
+        
         except requests.RequestException as e:
-            return {
-                "success": False,
-                "message": f"请求失败: {str(e)}"
-            }
-        except json.JSONDecodeError:
-            return {
-                "success": False,
-                "message": "响应格式错误"
-            }
-    
-    def _extract_report_links(self, response: Dict[str, Any]) -> Optional[Dict[str, str]]:
-        """
-        从智能体响应中提取报告链接
+            error_msg = f"请求失败: {str(e)}"
+            print(f"[AgentClient] 错误: {error_msg}")
+            yield f"❌ {error_msg}"
         
-        Args:
-            response: 智能体响应
-        
-        Returns:
-            报告链接字典
-        """
-        import re
-        
-        # 检查响应中是否包含报告链接
-        if "report_part1_url" in response:
-            return {
-                "report_part1_url": response.get("report_part1_url", ""),
-                "report_part2_url": response.get("report_part2_url", ""),
-                "report_part3_url": response.get("report_part3_url", ""),
-                "report_part4_url": response.get("report_part4_url", ""),
-                "report_summary": response.get("report_summary", "")
-            }
-        
-        # 如果messages中包含链接，尝试提取
-        if "messages" in response:
-            all_content = ""
-            for msg in response["messages"]:
-                content = msg.get("content", "")
-                if isinstance(content, str):
-                    all_content += content + "\n"
-            
-            # 使用正则表达式提取URL
-            url_pattern = r'https?://[^\s<>"]+\.docx?[^\s<>"]*'
-            url_matches = re.findall(url_pattern, all_content)
-            
-            if url_matches:
-                return {
-                    "report_part1_url": url_matches[0] if len(url_matches) > 0 else "",
-                    "report_part2_url": url_matches[1] if len(url_matches) > 1 else "",
-                    "report_part3_url": url_matches[2] if len(url_matches) > 2 else "",
-                    "report_part4_url": url_matches[3] if len(url_matches) > 3 else "",
-                    "report_summary": all_content[:200] + "..." if len(all_content) > 200 else all_content
-                }
-        
-        return None
+        except Exception as e:
+            error_msg = f"未知错误: {str(e)}"
+            print(f"[AgentClient] 错误: {error_msg}")
+            yield f"❌ {error_msg}"
 
 
 # 全局智能体客户端实例
