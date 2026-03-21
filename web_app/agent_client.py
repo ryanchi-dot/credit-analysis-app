@@ -144,29 +144,49 @@ class AgentClient:
                             # 提取内容（适配多种格式）
                             content = None
                             
+                            # 打印完整数据，用于调试
+                            print(f"[AgentClient] 完整响应数据: {json.dumps(data, ensure_ascii=False)[:300]}")
+                            
                             # 格式1: OpenAI格式 {"choices": [{"delta": {"content": "..."}}]}
                             if 'choices' in data and len(data['choices']) > 0:
                                 delta = data['choices'][0].get('delta', {})
                                 content = delta.get('content', '')
+                                print(f"[AgentClient] OpenAI格式，content类型: {type(content)}")
                             
                             # 格式2: 直接内容 {"content": "..."}
                             elif 'content' in data:
                                 content = data['content']
+                                print(f"[AgentClient] 直接内容格式，content类型: {type(content)}")
                             
                             # 格式3: 消息格式 {"message": {"content": "..."}}
                             elif 'message' in data:
                                 content = data['message'].get('content', '')
+                                print(f"[AgentClient] 消息格式，content类型: {type(content)}")
                             
                             # 格式4: 文本格式 {"text": "..."}
                             elif 'text' in data:
                                 content = data['text']
+                                print(f"[AgentClient] 文本格式，content类型: {type(content)}")
                             
+                            # 确保content是字符串
                             if content:
+                                if not isinstance(content, str):
+                                    print(f"[AgentClient] content不是字符串，尝试转换: {type(content)}")
+                                    content = str(content)
+                                
                                 full_content += content
                                 yield content
+                            else:
+                                print(f"[AgentClient] 未找到有效content字段，跳过")
                         
                         except json.JSONDecodeError as e:
                             print(f"[AgentClient] JSON解析失败: {e}, 数据: {data_text[:100]}")
+                            continue
+                        
+                        except Exception as e:
+                            print(f"[AgentClient] 处理数据时出错: {e}, 数据: {data_text[:100]}")
+                            import traceback
+                            traceback.print_exc()
                             continue
             
             print(f"[AgentClient] 流式对话完成，总长度: {len(full_content)}")
