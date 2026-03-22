@@ -346,6 +346,12 @@ def show_bottom_input_area():
 # ============ 处理用户消息 ============
 def process_user_message(prompt: str):
     """处理用户消息"""
+    # 如果有上传文件，把文件信息附加到消息中
+    message_with_files = prompt
+    if st.session_state.uploaded_files:
+        file_names = [f["name"] for f in st.session_state.uploaded_files]
+        message_with_files = f"{prompt}\n\n[用户上传了以下参考资料：\n" + "\n".join([f"- {name}" for name in file_names]) + "\n请在分析时参考这些资料。]"
+    
     # 添加用户消息
     user_msg = {
         "role": "user",
@@ -377,9 +383,9 @@ def process_user_message(prompt: str):
         message_placeholder = st.empty()
         full_response = ""
         
-        # 调用智能体流式API
+        # 调用智能体流式API（传递包含文件信息的消息）
         response_stream = agent_client.chat_stream(
-            user_message=prompt,
+            user_message=message_with_files,
             user_id=st.session_state.user_id,
             session_id=st.session_state.current_session_id
         )
