@@ -68,21 +68,32 @@ class AgentClient:
         print(f"[AgentClient] 用户消息: {user_message[:100]}...")
         print(f"{'='*60}\n")
         
-        # 构造智能体期望的payload格式
+        # 构造Coze Bot期望的payload格式
+        # 参考: curl命令中的格式
         payload = {
-            "messages": [
-                {
-                    "type": "user",
-                    "content": user_message
+            "content": {
+                "query": {
+                    "prompt": [
+                        {
+                            "type": "text",
+                            "content": {
+                                "text": user_message
+                            }
+                        }
+                    ]
                 }
-            ]
+            },
+            "type": "query"
         }
         
-        # 添加用户ID和会话ID（用于会话隔离）
-        if user_id:
-            payload["user_id"] = user_id
+        # 添加会话ID（用于会话隔离）
         if session_id:
             payload["session_id"] = session_id
+        
+        # 添加项目ID（如果环境变量中有设置）
+        project_id = os.getenv('AGENT_PROJECT_ID')
+        if project_id:
+            payload["project_id"] = project_id
         
         print(f"[AgentClient] 请求payload: {json.dumps(payload, ensure_ascii=False)}")
         

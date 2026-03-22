@@ -17,3 +17,6 @@ services:
         sync: false
       - key: AGENT_API_KEY
         sync: false
+      - key: AGENT_PROJECT_ID
+        # 请在Render平台上手动设置，值为Coze Bot的项目ID（如：7606922958543568936）
+        sync: false
