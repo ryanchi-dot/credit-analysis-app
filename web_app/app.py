@@ -1,6 +1,6 @@
 """
 银行信贷分析助手 - Streamlit主应用
-优化版本：快速响应 + 类DeepSeek输入框
+优化版本：停止按钮 + 输入框内上传 + 历史记录功能
 """
 import streamlit as st
 import os
@@ -22,10 +22,10 @@ st.set_page_config(
     page_title="银行信贷分析助手",
     page_icon="🏦",
     layout="wide",
-    initial_sidebar_state="collapsed"  # 默认收起侧边栏，加快加载
+    initial_sidebar_state="collapsed"
 )
 
-# 自定义CSS（优化样式）
+# 自定义CSS
 st.markdown("""
     <style>
         /* 隐藏默认的Streamlit元素 */
@@ -36,65 +36,73 @@ st.markdown("""
         /* 主容器 */
         .main .block-container {
             padding-top: 1rem;
-            padding-bottom: 5rem;
-            max-width: 1000px;
+            padding-bottom: 100px;
+            max-width: 900px;
         }
         
         /* 标题样式 */
         .main-title {
-            font-size: 2rem;
+            font-size: 1.8rem;
             font-weight: bold;
             color: #1e3a5f;
             text-align: center;
             margin-bottom: 0.5rem;
         }
         
-        /* 聊天消息样式 */
-        .stChatMessage {
-            padding: 0.5rem 0;
-        }
-        
         /* 文件标签样式 */
         .file-badge {
             display: inline-block;
-            padding: 0.25rem 0.5rem;
+            padding: 0.2rem 0.5rem;
             background-color: #e3f2fd;
             border-radius: 12px;
-            font-size: 0.8rem;
-            margin: 0.25rem;
+            font-size: 0.75rem;
+            margin: 0.15rem;
             color: #1565c0;
         }
         
-        /* 上传按钮样式 */
-        .upload-btn {
-            background-color: #f5f5f5;
-            border: 1px solid #e0e0e0;
-            border-radius: 50%;
-            width: 40px;
-            height: 40px;
+        /* 底部输入区域固定 */
+        .bottom-input-container {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: white;
+            padding: 1rem;
+            border-top: 1px solid #e0e0e0;
+            z-index: 100;
+        }
+        
+        /* 输入框容器 */
+        .input-box {
             display: flex;
             align-items: center;
-            justify-content: center;
+            background: #f5f5f5;
+            border-radius: 24px;
+            padding: 0.5rem 1rem;
+            border: 1px solid #e0e0e0;
+        }
+        
+        /* 历史记录侧边栏 */
+        .history-item {
+            padding: 0.75rem;
+            border-radius: 8px;
             cursor: pointer;
-            font-size: 1.5rem;
-            color: #666;
+            margin-bottom: 0.5rem;
+            background: #f8f9fa;
         }
         
-        .upload-btn:hover {
-            background-color: #e0e0e0;
+        .history-item:hover {
+            background: #e9ecef;
         }
         
-        /* 侧边栏样式 */
-        section[data-testid="stSidebar"] {
-            width: 300px !important;
-        }
-        
-        /* 响应式布局 */
-        @media (max-width: 768px) {
-            .main .block-container {
-                padding-left: 1rem;
-                padding-right: 1rem;
-            }
+        /* 停止按钮 */
+        .stop-button {
+            background-color: #dc3545;
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            cursor: pointer;
         }
     </style>
 """, unsafe_allow_html=True)
@@ -102,35 +110,77 @@ st.markdown("""
 
 # ============ 初始化Session State ============
 def init_session_state():
-    """初始化session state - 确保每个用户独立"""
-    # 用户ID（使用浏览器session，每个浏览器会话唯一）
+    """初始化session state"""
     if 'user_id' not in st.session_state:
         st.session_state.user_id = f"user_{uuid.uuid4().hex[:16]}"
     
-    # 当前会话ID（每次新建对话生成新的）
     if 'current_session_id' not in st.session_state:
         st.session_state.current_session_id = f"session_{uuid.uuid4().hex[:16]}"
     
-    # 对话消息列表
     if 'messages' not in st.session_state:
         st.session_state.messages = []
     
-    # 已上传文件列表（临时存储）
     if 'uploaded_files' not in st.session_state:
         st.session_state.uploaded_files = []
     
-    # 历史会话
     if 'history' not in st.session_state:
         st.session_state.history = []
     
-    # 显示上传对话框
+    if 'is_generating' not in st.session_state:
+        st.session_state.is_generating = False
+    
+    if 'stop_generation' not in st.session_state:
+        st.session_state.stop_generation = False
+    
+    if 'show_history' not in st.session_state:
+        st.session_state.show_history = False
+    
     if 'show_upload' not in st.session_state:
         st.session_state.show_upload = False
+
+
+# ============ 侧边栏（历史记录）============
+def show_history_sidebar():
+    """显示历史记录侧边栏"""
+    if st.session_state.show_history:
+        with st.sidebar:
+            st.markdown("### 📝 历史记录")
+            st.markdown("---")
+            
+            if not st.session_state.history:
+                st.info("暂无历史记录")
+            else:
+                for i, session in enumerate(st.session_state.history[:20]):
+                    col1, col2 = st.columns([5, 1])
+                    with col1:
+                        if st.button(
+                            f"💬 {session['title'][:20]}",
+                            key=f"history_item_{i}",
+                            use_container_width=True
+                        ):
+                            load_history_session(i)
+                    with col2:
+                        if st.button("🗑️", key=f"del_history_{i}", help="删除"):
+                            st.session_state.history.pop(i)
+                            st.rerun()
+            
+            st.markdown("---")
+            if st.button("➕ 新建对话", use_container_width=True):
+                create_new_session()
+                st.session_state.show_history = False
+                st.rerun()
+            
+            if st.button("✖️ 关闭", use_container_width=True):
+                st.session_state.show_history = False
+                st.rerun()
 
 
 # ============ 主界面 ============
 def show_main_page():
     """显示主界面"""
+    # 显示历史记录侧边栏
+    show_history_sidebar()
+    
     # 顶部工具栏
     show_top_bar()
     
@@ -140,49 +190,45 @@ def show_main_page():
     # 显示对话消息
     display_chat_messages()
     
-    # 底部输入区域（类似DeepSeek）
-    handle_chat_input_with_upload()
+    # 底部输入区域
+    show_bottom_input_area()
 
 
 # ============ 顶部工具栏 ============
 def show_top_bar():
     """显示顶部工具栏"""
-    col1, col2, col3, col4 = st.columns([6, 1, 1, 1])
+    col1, col2, col3, col4 = st.columns([8, 1, 1, 1])
     
     with col2:
-        # 新建对话按钮
-        if st.button("➕", help="新建对话", key="new_chat_btn"):
+        if st.button("➕", help="新建对话", key="new_chat"):
             create_new_session()
             st.rerun()
     
     with col3:
-        # 历史记录按钮（打开侧边栏）
         if st.button("📝", help="历史记录", key="history_btn"):
-            st.session_state.show_sidebar = not st.session_state.get('show_sidebar', False)
+            st.session_state.show_history = not st.session_state.show_history
+            st.rerun()
     
     with col4:
-        # 使用说明按钮
         if st.button("❓", help="使用说明", key="help_btn"):
             st.session_state.show_help = not st.session_state.get('show_help', False)
     
-    # 显示帮助信息
     if st.session_state.get('show_help', False):
         with st.expander("📖 使用说明", expanded=True):
             st.markdown("""
-            **直接输入企业名称，我会立即为您生成授信分析报告！**
+            **输入企业名称，我会帮您生成授信分析报告**
             
-            **示例**：
-            - 百度在线网络技术（北京）有限公司
-            - 腾讯控股有限公司
-            - 阿里巴巴集团
+            **步骤**：
+            1. 输入企业名称（如：百度在线网络技术（北京）有限公司）
+            2. 确认分析范围和是否有参考资料
+            3. 等待报告生成
             
-            **功能特点**：
+            **功能**：
             - ✅ 自动搜集企业公开信息
-            - ✅ 生成专业的授信分析报告
+            - ✅ 生成专业授信分析报告
             - ✅ 支持上传参考资料
-            - ✅ 实时对话交互
             
-            **预计耗时**：5-8分钟
+            **耗时**：约5-8分钟
             """)
     
     st.markdown("---")
@@ -192,44 +238,32 @@ def show_top_bar():
 def display_chat_messages():
     """显示所有对话消息"""
     if not st.session_state.messages:
-        # 欢迎消息
         st.markdown("""
         <div style="text-align: center; padding: 3rem 1rem; color: #666;">
-            <h2>👋 欢迎使用银行信贷分析助手！</h2>
-            <p style="font-size: 1.1rem; margin: 1rem 0;">直接输入企业名称，我会立即为您生成授信分析报告</p>
-            <div style="margin-top: 2rem;">
-                <p><strong>快速开始：</strong></p>
-                <p style="color: #1565c0; cursor: pointer;" onclick="document.querySelector('textarea').value='百度在线网络技术（北京）有限公司';">
-                    • 百度在线网络技术（北京）有限公司
-                </p>
-                <p style="color: #1565c0; cursor: pointer;" onclick="document.querySelector('textarea').value='腾讯控股有限公司';">
-                    • 腾讯控股有限公司
-                </p>
-                <p style="color: #1565c0; cursor: pointer;" onclick="document.querySelector('textarea').value='阿里巴巴集团';">
-                    • 阿里巴巴集团
-                </p>
+            <h2>👋 欢迎使用银行信贷分析助手</h2>
+            <p style="font-size: 1rem; margin: 1rem 0;">输入企业名称开始分析</p>
+            <div style="margin-top: 1.5rem; color: #999;">
+                <p>示例：百度在线网络技术（北京）有限公司</p>
+                <p>腾讯控股有限公司</p>
+                <p>阿里巴巴集团</p>
             </div>
         </div>
         """, unsafe_allow_html=True)
         return
     
-    # 显示所有消息
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"], avatar="👤" if msg["role"] == "user" else "🏦"):
-            # 显示消息内容
             st.markdown(msg["content"])
             
-            # 显示上传的文件（如果有）
             if msg.get("files"):
                 files_html = " ".join([f'<span class="file-badge">📎 {f["name"]}</span>' for f in msg["files"]])
                 st.markdown(files_html, unsafe_allow_html=True)
             
-            # 显示报告链接（如果有）
             if msg.get("report_links"):
                 st.markdown("**📥 报告下载**:")
                 links = msg["report_links"]
                 cols = st.columns(min(4, len(links)))
-                link_names = ["申报方案分析", "财务分析", "行业分析", "结论"]
+                link_names = ["申报方案", "财务分析", "行业分析", "结论"]
                 
                 for i, (col, name) in enumerate(zip(cols, link_names)):
                     key = f"report_part{i+1}_url"
@@ -238,67 +272,71 @@ def display_chat_messages():
                             st.link_button(f"📄 {name}", links[key], use_container_width=True)
 
 
-# ============ 处理聊天输入（带上传功能） ============
-def handle_chat_input_with_upload():
-    """处理用户输入 - 类似DeepSeek的输入框"""
+# ============ 底部输入区域 ============
+def show_bottom_input_area():
+    """显示底部输入区域 - 类似DeepSeek"""
     
-    # 显示已上传的文件标签
+    # 显示已上传的文件
     if st.session_state.uploaded_files:
-        files_html = " ".join([f'<span class="file-badge">📎 {f["name"]}</span>' for f in st.session_state.uploaded_files])
-        st.markdown(files_html, unsafe_allow_html=True)
+        col_files, col_clear = st.columns([10, 1])
+        with col_files:
+            files_html = " ".join([f'<span class="file-badge">📎 {f["name"]} ✕</span>' for f in st.session_state.uploaded_files])
+            st.markdown(files_html, unsafe_allow_html=True)
+        with col_clear:
+            if st.button("🗑️", key="clear_files", help="清空文件"):
+                st.session_state.uploaded_files = []
+                st.rerun()
     
-    # 使用容器创建底部输入区域
-    with st.container():
-        # 创建两列：主输入框 + 上传按钮
-        col1, col2 = st.columns([12, 1])
-        
-        with col1:
-            # 聊天输入框
-            prompt = st.chat_input("输入企业名称开始分析...", key="main_chat_input")
-        
-        with col2:
-            # 上传按钮（+号）
-            st.markdown("""
-                <style>
-                .upload-container {
-                    position: relative;
-                    margin-top: 25px;
-                }
-                </style>
-                <div class="upload-container">
-            """, unsafe_allow_html=True)
+    # 创建输入框和按钮的布局
+    col_input, col_upload, col_send = st.columns([10, 1, 1])
+    
+    with col_input:
+        prompt = st.chat_input("输入企业名称...", key="main_input")
+    
+    with col_upload:
+        # 上传按钮（模拟在输入框内）
+        st.markdown("<div style='height: 60px; display: flex; align-items: center;'>", unsafe_allow_html=True)
+        if st.button("📎", key="upload_btn", help="上传附件"):
+            st.session_state.show_upload = True
+        st.markdown("</div>", unsafe_allow_html=True)
+    
+    with col_send:
+        st.markdown("<div style='height: 60px; display: flex; align-items: center;'>", unsafe_allow_html=True)
+        if st.button("➡️", key="send_btn", help="发送"):
+            pass
+        st.markdown("</div>", unsafe_allow_html=True)
+    
+    # 上传文件弹窗
+    if st.session_state.show_upload:
+        with st.popover("📎 上传附件", help="点击上传文件"):
+            uploaded_files = st.file_uploader(
+                "选择文件",
+                type=['pdf', 'doc', 'docx', 'xls', 'xlsx', 'jpg', 'jpeg', 'png'],
+                accept_multiple_files=True,
+                key="file_uploader_main"
+            )
             
-            # 使用expander来模拟弹出上传窗口
-            with st.expander("", expanded=st.session_state.get('show_upload', False)):
-                uploaded_files = st.file_uploader(
-                    "上传参考资料",
-                    type=['pdf', 'doc', 'docx', 'xls', 'xlsx', 'jpg', 'jpeg', 'png'],
-                    accept_multiple_files=True,
-                    key="file_uploader_popup",
-                    label_visibility="collapsed"
-                )
-                
-                if uploaded_files:
-                    # 保存上传的文件
-                    for uploaded_file in uploaded_files:
-                        if is_allowed_file_type(uploaded_file.name):
-                            file_path = file_storage.save_file(
-                                st.session_state.user_id,
-                                uploaded_file.name,
-                                uploaded_file.read()
-                            )
-                            
-                            # 检查是否已存在
-                            exists = any(f['name'] == uploaded_file.name for f in st.session_state.uploaded_files)
-                            if not exists:
-                                st.session_state.uploaded_files.append({
-                                    'name': uploaded_file.name,
-                                    'size': format_file_size(uploaded_file.size),
-                                    'type': get_file_type(uploaded_file.name),
-                                    'path': file_path
-                                })
-                    
-                    st.success(f"已上传 {len(uploaded_files)} 个文件")
+            if uploaded_files:
+                for uploaded_file in uploaded_files:
+                    if is_allowed_file_type(uploaded_file.name):
+                        file_path = file_storage.save_file(
+                            st.session_state.user_id,
+                            uploaded_file.name,
+                            uploaded_file.read()
+                        )
+                        exists = any(f['name'] == uploaded_file.name for f in st.session_state.uploaded_files)
+                        if not exists:
+                            st.session_state.uploaded_files.append({
+                                'name': uploaded_file.name,
+                                'size': format_file_size(uploaded_file.size),
+                                'type': get_file_type(uploaded_file.name),
+                                'path': file_path
+                            })
+                st.success(f"已添加 {len(uploaded_files)} 个文件")
+            
+            if st.button("完成", key="close_upload"):
+                st.session_state.show_upload = False
+                st.rerun()
     
     # 处理用户输入
     if prompt:
@@ -307,7 +345,7 @@ def handle_chat_input_with_upload():
 
 # ============ 处理用户消息 ============
 def process_user_message(prompt: str):
-    """处理用户消息并发送请求"""
+    """处理用户消息"""
     # 添加用户消息
     user_msg = {
         "role": "user",
@@ -315,11 +353,9 @@ def process_user_message(prompt: str):
         "timestamp": datetime.now().isoformat()
     }
     
-    # 添加上传的文件（如果有）
     if st.session_state.uploaded_files:
         user_msg["files"] = st.session_state.uploaded_files.copy()
     
-    # 添加到消息列表
     st.session_state.messages.append(user_msg)
     
     # 显示用户消息
@@ -329,12 +365,19 @@ def process_user_message(prompt: str):
             files_html = " ".join([f'<span class="file-badge">📎 {f["name"]}</span>' for f in user_msg["files"]])
             st.markdown(files_html, unsafe_allow_html=True)
     
-    # 显示助手回复（流式）
+    # 显示助手回复
     with st.chat_message("assistant", avatar="🏦"):
+        # 停止按钮
+        stop_col, _ = st.columns([1, 10])
+        with stop_col:
+            if st.button("⏹️ 停止", key="stop_btn", type="primary"):
+                st.session_state.stop_generation = True
+                st.warning("正在停止...")
+        
         message_placeholder = st.empty()
         full_response = ""
         
-        # 调用智能体流式API（不显示spinner，加快响应感知）
+        # 调用智能体流式API
         response_stream = agent_client.chat_stream(
             user_message=prompt,
             user_id=st.session_state.user_id,
@@ -343,10 +386,14 @@ def process_user_message(prompt: str):
         
         # 流式显示响应
         for chunk in response_stream:
+            # 检查是否停止
+            if st.session_state.stop_generation:
+                full_response += "\n\n*[已停止生成]*"
+                break
+            
             full_response += chunk
             message_placeholder.markdown(full_response + "▌")
         
-        # 最终显示
         message_placeholder.markdown(full_response)
         
         # 提取报告链接
@@ -355,13 +402,16 @@ def process_user_message(prompt: str):
         if report_links:
             st.markdown("**📥 报告下载**:")
             cols = st.columns(min(4, len(report_links)))
-            link_names = ["申报方案分析", "财务分析", "行业分析", "结论"]
+            link_names = ["申报方案", "财务分析", "行业分析", "结论"]
             
             for i, (col, name) in enumerate(zip(cols, link_names)):
                 key = f"report_part{i+1}_url"
                 if key in report_links and report_links[key]:
                     with col:
                         st.link_button(f"📄 {name}", report_links[key], use_container_width=True)
+    
+    # 重置停止标志
+    st.session_state.stop_generation = False
     
     # 添加助手消息到历史
     assistant_msg = {
@@ -391,8 +441,6 @@ def extract_report_links(text: str) -> Dict[str, str]:
     import re
     
     links = {}
-    
-    # 匹配Markdown链接格式
     patterns = {
         "report_part1_url": r'\[.*?申报方案.*?\]\((https?://[^\)]+\.docx?)\)',
         "report_part2_url": r'\[.*?财务分析.*?\]\((https?://[^\)]+\.docx?)\)',
@@ -405,7 +453,6 @@ def extract_report_links(text: str) -> Dict[str, str]:
         if match:
             links[key] = match.group(1)
     
-    # 也尝试匹配普通URL格式
     url_pattern = r'(https?://[^\s<>"]+\.docx?)'
     all_urls = re.findall(url_pattern, text)
     
@@ -428,7 +475,6 @@ def save_to_history(user_message: str):
         'messages': st.session_state.messages.copy()
     }
     
-    # 检查是否已存在
     existing_index = None
     for i, s in enumerate(st.session_state.history):
         if s['session_id'] == session['session_id']:
@@ -448,15 +494,23 @@ def create_new_session():
     st.session_state.current_session_id = f"session_{uuid.uuid4().hex[:16]}"
     st.session_state.messages = []
     st.session_state.uploaded_files = []
+    st.session_state.stop_generation = False
+
+
+def load_history_session(index: int):
+    """加载历史会话"""
+    if 0 <= index < len(st.session_state.history):
+        session = st.session_state.history[index]
+        st.session_state.current_session_id = session['session_id']
+        st.session_state.messages = session['messages'].copy()
+        st.session_state.show_history = False
+        st.rerun()
 
 
 # ============ 主程序 ============
 def main():
     """主函数"""
-    # 初始化session state
     init_session_state()
-    
-    # 显示主界面
     show_main_page()
 
 
