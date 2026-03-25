@@ -1,6 +1,6 @@
 """
 银行信贷分析助手 - Streamlit主应用
-优化版本：类豆包AI界面
+优化版本：支持连续消息
 """
 import streamlit as st
 import os
@@ -25,22 +25,19 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# 自定义CSS（类豆包AI风格）
+# 自定义CSS
 st.markdown("""
     <style>
-        /* 隐藏默认的Streamlit元素 */
         #MainMenu {visibility: hidden;}
         footer {visibility: hidden;}
         header {visibility: hidden;}
         
-        /* 主容器 */
         .main .block-container {
             padding-top: 1rem;
             padding-bottom: 120px;
             max-width: 800px;
         }
         
-        /* 标题 */
         .main-title {
             font-size: 1.5rem;
             font-weight: bold;
@@ -49,7 +46,6 @@ st.markdown("""
             margin-bottom: 0.5rem;
         }
         
-        /* 文件标签 */
         .file-badge {
             display: inline-block;
             padding: 0.2rem 0.5rem;
@@ -60,21 +56,13 @@ st.markdown("""
             color: #1565c0;
         }
         
-        /* 输入框容器 */
-        .input-container {
-            position: fixed;
-            bottom: 0;
-            left: 50%;
-            transform: translateX(-50%);
-            width: 100%;
-            max-width: 800px;
-            background: white;
+        .upload-panel {
+            background: #f8f9fa;
+            border-radius: 12px;
             padding: 1rem;
-            border-top: 1px solid #e0e0e0;
-            z-index: 100;
+            margin-bottom: 0.5rem;
         }
         
-        /* 隐藏streamlit默认按钮样式 */
         .stButton button {
             background: transparent;
             border: none;
@@ -85,29 +73,6 @@ st.markdown("""
         .stButton button:hover {
             background: #f0f0f0;
             border-radius: 50%;
-        }
-        
-        /* 历史记录面板 */
-        .history-panel {
-            position: fixed;
-            top: 60px;
-            right: 20px;
-            width: 300px;
-            max-height: 400px;
-            background: white;
-            border: 1px solid #e0e0e0;
-            border-radius: 12px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-            z-index: 200;
-            overflow: hidden;
-        }
-        
-        /* 上传面板 */
-        .upload-panel {
-            background: #f8f9fa;
-            border-radius: 12px;
-            padding: 1rem;
-            margin-bottom: 0.5rem;
         }
     </style>
 """, unsafe_allow_html=True)
@@ -142,24 +107,21 @@ def init_session_state():
     
     if 'show_help' not in st.session_state:
         st.session_state.show_help = False
+    
+    if 'is_processing' not in st.session_state:
+        st.session_state.is_processing = False
 
 
 # ============ 历史记录面板 ============
 def show_history_panel():
-    """显示历史记录面板（固定位置弹窗）"""
+    """显示历史记录面板"""
     if st.session_state.show_history:
-        # 使用container创建固定位置面板
         st.markdown("""
             <div style="position: fixed; top: 60px; right: 20px; width: 320px; max-height: 450px; 
                         background: white; border: 1px solid #e0e0e0; border-radius: 12px; 
                         box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 200; overflow: hidden;">
-                <div style="padding: 1rem; border-bottom: 1px solid #e0e0e0; display: flex; justify-content: space-between; align-items: center;">
-                    <span style="font-weight: bold;">📝 历史记录</span>
-                </div>
-                <div style="max-height: 350px; overflow-y: auto; padding: 0.5rem;">
         """, unsafe_allow_html=True)
         
-        # 历史记录内容
         if not st.session_state.history:
             st.info("暂无历史记录")
         else:
@@ -173,12 +135,11 @@ def show_history_panel():
                         st.session_state.history.pop(i)
                         st.rerun()
         
-        st.markdown("</div></div>", unsafe_allow_html=True)
-        
-        # 关闭按钮
-        if st.button("✖️ 关闭历史记录", key="close_history"):
+        if st.button("✖️ 关闭", key="close_history", use_container_width=True):
             st.session_state.show_history = False
             st.rerun()
+        
+        st.markdown("</div>", unsafe_allow_html=True)
 
 
 # ============ 顶部工具栏 ============
@@ -200,7 +161,6 @@ def show_top_bar():
         if st.button("❓", help="使用说明", key="help_btn"):
             st.session_state.show_help = not st.session_state.show_help
     
-    # 使用说明
     if st.session_state.show_help:
         with st.expander("📖 使用说明", expanded=True):
             st.markdown("""
@@ -258,14 +218,12 @@ def display_chat_messages():
                             st.link_button(f"📄 {name}", links[key], use_container_width=True)
 
 
-# ============ 底部输入区域（类豆包AI）============
+# ============ 输入区域 ============
 def show_input_area():
-    """显示底部输入区域 - 类豆包AI风格"""
-    
-    # 显示历史记录面板
+    """显示输入区域"""
     show_history_panel()
     
-    # 上传文件区域（在输入框上方）
+    # 上传文件区域
     if st.session_state.show_upload:
         with st.container():
             st.markdown('<div class="upload-panel">', unsafe_allow_html=True)
@@ -317,45 +275,30 @@ def show_input_area():
         st.markdown(files_html + "  ", unsafe_allow_html=True)
     
     # 输入框区域
-    st.markdown("""
-        <style>
-            .input-row {
-                display: flex;
-                align-items: center;
-                background: #f5f5f5;
-                border-radius: 24px;
-                padding: 0.5rem;
-                border: 1px solid #e0e0e0;
-            }
-            .input-row:focus-within {
-                border-color: #1565c0;
-            }
-        </style>
-    """, unsafe_allow_html=True)
-    
-    # 使用列布局模拟输入框内的按钮
-    col_plus, col_input, col_send = st.columns([0.5, 10, 0.8])
+    col_plus, col_input = st.columns([0.5, 10])
     
     with col_plus:
-        # + 按钮（在输入框内）
         if st.button("➕", key="upload_plus_btn", help="上传附件"):
             st.session_state.show_upload = not st.session_state.show_upload
             st.rerun()
     
     with col_input:
+        # 使用回调函数处理输入
+        def on_chat_input():
+            prompt = st.session_state.get("main_chat_input_value", "")
+            if prompt and not st.session_state.is_processing:
+                st.session_state.is_processing = True
+                process_user_message(prompt)
+        
         prompt = st.chat_input("输入企业名称开始分析...", key="main_chat_input")
-    
-    with col_send:
-        pass  # 发送由回车键触发
-    
-    # 处理用户输入
-    if prompt:
-        process_user_message(prompt)
 
 
 # ============ 处理用户消息 ============
 def process_user_message(prompt: str):
     """处理用户消息"""
+    if not prompt:
+        return
+    
     # 如果有上传文件，把文件信息附加到消息中
     message_with_files = prompt
     if st.session_state.uploaded_files:
@@ -392,22 +335,27 @@ def process_user_message(prompt: str):
         full_response = ""
         
         # 调用智能体流式API
-        response_stream = agent_client.chat_stream(
-            user_message=message_with_files,
-            user_id=st.session_state.user_id,
-            session_id=st.session_state.current_session_id
-        )
-        
-        # 流式显示响应
-        for chunk in response_stream:
-            if st.session_state.stop_generation:
-                full_response += "\n\n*[已停止生成]*"
-                break
+        try:
+            response_stream = agent_client.chat_stream(
+                user_message=message_with_files,
+                user_id=st.session_state.user_id,
+                session_id=st.session_state.current_session_id
+            )
             
-            full_response += chunk
-            message_placeholder.markdown(full_response + "▌")
-        
-        message_placeholder.markdown(full_response)
+            # 流式显示响应
+            for chunk in response_stream:
+                if st.session_state.stop_generation:
+                    full_response += "\n\n*[已停止生成]*"
+                    break
+                
+                full_response += chunk
+                message_placeholder.markdown(full_response + "▌")
+            
+            message_placeholder.markdown(full_response)
+            
+        except Exception as e:
+            full_response = f"❌ 发生错误: {str(e)}"
+            message_placeholder.markdown(full_response)
         
         # 提取报告链接
         report_links = extract_report_links(full_response)
@@ -423,8 +371,9 @@ def process_user_message(prompt: str):
                     with col:
                         st.link_button(f"📄 {name}", report_links[key], use_container_width=True)
     
-    # 重置停止标志
+    # 重置状态
     st.session_state.stop_generation = False
+    st.session_state.is_processing = False
     
     # 添加助手消息到历史
     assistant_msg = {
@@ -445,8 +394,7 @@ def process_user_message(prompt: str):
     st.session_state.uploaded_files = []
     st.session_state.show_upload = False
     
-    # 刷新页面
-    st.rerun()
+    # 不再调用 st.rerun()，让 Streamlit 自然更新
 
 
 # ============ 工具函数 ============
@@ -511,6 +459,7 @@ def create_new_session():
     st.session_state.stop_generation = False
     st.session_state.show_history = False
     st.session_state.show_upload = False
+    st.session_state.is_processing = False
 
 
 def load_history_session(index: int):
@@ -537,8 +486,14 @@ def main():
     # 显示对话消息
     display_chat_messages()
     
-    # 底部输入区域
+    # 输入区域
     show_input_area()
+    
+    # 处理用户输入（如果有的话）
+    if st.session_state.get("main_chat_input") and not st.session_state.is_processing:
+        prompt = st.session_state.main_chat_input
+        st.session_state.is_processing = True
+        process_user_message(prompt)
 
 
 if __name__ == "__main__":
