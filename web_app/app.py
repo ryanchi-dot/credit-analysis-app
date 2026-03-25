@@ -1,6 +1,5 @@
 """
 银行信贷分析助手 - Streamlit主应用
-优化版本：支持连续消息
 """
 import streamlit as st
 import os
@@ -9,10 +8,8 @@ from datetime import datetime
 from typing import List, Dict, Any
 from dotenv import load_dotenv
 
-# 加载环境变量
 load_dotenv()
 
-# 导入自定义模块
 from agent_client import agent_client
 from utils import file_storage, format_file_size, is_allowed_file_type, get_file_type
 
@@ -54,13 +51,6 @@ st.markdown("""
             font-size: 0.75rem;
             margin: 0.15rem;
             color: #1565c0;
-        }
-        
-        .upload-panel {
-            background: #f8f9fa;
-            border-radius: 12px;
-            padding: 1rem;
-            margin-bottom: 0.5rem;
         }
         
         .stButton button {
@@ -112,36 +102,6 @@ def init_session_state():
         st.session_state.is_processing = False
 
 
-# ============ 历史记录面板 ============
-def show_history_panel():
-    """显示历史记录面板"""
-    if st.session_state.show_history:
-        st.markdown("""
-            <div style="position: fixed; top: 60px; right: 20px; width: 320px; max-height: 450px; 
-                        background: white; border: 1px solid #e0e0e0; border-radius: 12px; 
-                        box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 200; overflow: hidden;">
-        """, unsafe_allow_html=True)
-        
-        if not st.session_state.history:
-            st.info("暂无历史记录")
-        else:
-            for i, session in enumerate(st.session_state.history[:15]):
-                col1, col2 = st.columns([5, 1])
-                with col1:
-                    if st.button(f"💬 {session['title'][:18]}", key=f"hist_{i}", use_container_width=True):
-                        load_history_session(i)
-                with col2:
-                    if st.button("🗑️", key=f"del_{i}", help="删除"):
-                        st.session_state.history.pop(i)
-                        st.rerun()
-        
-        if st.button("✖️ 关闭", key="close_history", use_container_width=True):
-            st.session_state.show_history = False
-            st.rerun()
-        
-        st.markdown("</div>", unsafe_allow_html=True)
-
-
 # ============ 顶部工具栏 ============
 def show_top_bar():
     """显示顶部工具栏"""
@@ -180,6 +140,38 @@ def show_top_bar():
             """)
     
     st.markdown("---")
+
+
+# ============ 历史记录面板 ============
+def show_history_panel():
+    """显示历史记录面板"""
+    if not st.session_state.show_history:
+        return
+    
+    # 使用 container 替代 HTML
+    st.markdown("### 📝 历史记录")
+    
+    if not st.session_state.history:
+        st.info("暂无历史记录，开始对话后历史记录会自动保存")
+    else:
+        for i, session in enumerate(st.session_state.history[:15]):
+            col1, col2 = st.columns([5, 1])
+            with col1:
+                if st.button(f"💬 {session['title'][:20]}", key=f"hist_{i}", use_container_width=True):
+                    # 加载历史会话
+                    st.session_state.current_session_id = session['session_id']
+                    st.session_state.messages = session['messages'].copy()
+                    st.session_state.show_history = False
+                    st.rerun()
+            with col2:
+                if st.button("🗑️", key=f"del_{i}", help="删除"):
+                    st.session_state.history.pop(i)
+                    st.rerun()
+    
+    st.markdown("---")
+    if st.button("✖️ 关闭历史记录", key="close_history", use_container_width=True):
+        st.session_state.show_history = False
+        st.rerun()
 
 
 # ============ 显示对话消息 ============
@@ -221,12 +213,9 @@ def display_chat_messages():
 # ============ 输入区域 ============
 def show_input_area():
     """显示输入区域"""
-    show_history_panel()
-    
     # 上传文件区域
     if st.session_state.show_upload:
         with st.container():
-            st.markdown('<div class="upload-panel">', unsafe_allow_html=True)
             st.markdown("**📎 上传参考资料**")
             
             uploaded_files = st.file_uploader(
@@ -266,13 +255,11 @@ def show_input_area():
                         st.session_state.uploaded_files = []
                         st.session_state.show_upload = False
                         st.rerun()
-            
-            st.markdown('</div>', unsafe_allow_html=True)
     
     # 显示已上传的文件
     if st.session_state.uploaded_files and not st.session_state.show_upload:
         files_html = " ".join([f'<span class="file-badge">📎 {f["name"]}</span>' for f in st.session_state.uploaded_files])
-        st.markdown(files_html + "  ", unsafe_allow_html=True)
+        st.markdown(files_html, unsafe_allow_html=True)
     
     # 输入框区域
     col_plus, col_input = st.columns([0.5, 10])
@@ -283,21 +270,16 @@ def show_input_area():
             st.rerun()
     
     with col_input:
-        # 使用回调函数处理输入
-        def on_chat_input():
-            prompt = st.session_state.get("main_chat_input_value", "")
-            if prompt and not st.session_state.is_processing:
-                st.session_state.is_processing = True
-                process_user_message(prompt)
-        
         prompt = st.chat_input("输入企业名称开始分析...", key="main_chat_input")
 
 
 # ============ 处理用户消息 ============
 def process_user_message(prompt: str):
     """处理用户消息"""
-    if not prompt:
+    if not prompt or st.session_state.is_processing:
         return
+    
+    st.session_state.is_processing = True
     
     # 如果有上传文件，把文件信息附加到消息中
     message_with_files = prompt
@@ -326,7 +308,6 @@ def process_user_message(prompt: str):
     
     # 显示助手回复
     with st.chat_message("assistant", avatar="🏦"):
-        # 停止按钮
         if st.button("⏹️ 停止生成", key="stop_btn", type="primary"):
             st.session_state.stop_generation = True
             st.warning("正在停止...")
@@ -334,7 +315,6 @@ def process_user_message(prompt: str):
         message_placeholder = st.empty()
         full_response = ""
         
-        # 调用智能体流式API
         try:
             response_stream = agent_client.chat_stream(
                 user_message=message_with_files,
@@ -342,7 +322,6 @@ def process_user_message(prompt: str):
                 session_id=st.session_state.current_session_id
             )
             
-            # 流式显示响应
             for chunk in response_stream:
                 if st.session_state.stop_generation:
                     full_response += "\n\n*[已停止生成]*"
@@ -357,7 +336,6 @@ def process_user_message(prompt: str):
             full_response = f"❌ 发生错误: {str(e)}"
             message_placeholder.markdown(full_response)
         
-        # 提取报告链接
         report_links = extract_report_links(full_response)
         
         if report_links:
@@ -393,8 +371,6 @@ def process_user_message(prompt: str):
     # 清空上传的文件
     st.session_state.uploaded_files = []
     st.session_state.show_upload = False
-    
-    # 不再调用 st.rerun()，让 Streamlit 自然更新
 
 
 # ============ 工具函数 ============
@@ -437,6 +413,7 @@ def save_to_history(user_message: str):
         'messages': st.session_state.messages.copy()
     }
     
+    # 检查是否已存在
     existing_index = None
     for i, s in enumerate(st.session_state.history):
         if s['session_id'] == session['session_id']:
@@ -449,6 +426,9 @@ def save_to_history(user_message: str):
         st.session_state.history.insert(0, session)
         if len(st.session_state.history) > 15:
             st.session_state.history.pop()
+    
+    # 打印日志确认保存
+    print(f"[历史记录] 已保存会话: {title}, 总数: {len(st.session_state.history)}")
 
 
 def create_new_session():
@@ -462,16 +442,6 @@ def create_new_session():
     st.session_state.is_processing = False
 
 
-def load_history_session(index: int):
-    """加载历史会话"""
-    if 0 <= index < len(st.session_state.history):
-        session = st.session_state.history[index]
-        st.session_state.current_session_id = session['session_id']
-        st.session_state.messages = session['messages'].copy()
-        st.session_state.show_history = False
-        st.rerun()
-
-
 # ============ 主程序 ============
 def main():
     """主函数"""
@@ -479,6 +449,9 @@ def main():
     
     # 顶部工具栏
     show_top_bar()
+    
+    # 历史记录面板（如果显示）
+    show_history_panel()
     
     # 主标题
     st.markdown('<div class="main-title">🏦 银行信贷分析助手</div>', unsafe_allow_html=True)
@@ -489,10 +462,9 @@ def main():
     # 输入区域
     show_input_area()
     
-    # 处理用户输入（如果有的话）
+    # 处理用户输入
     if st.session_state.get("main_chat_input") and not st.session_state.is_processing:
         prompt = st.session_state.main_chat_input
-        st.session_state.is_processing = True
         process_user_message(prompt)
 
 
