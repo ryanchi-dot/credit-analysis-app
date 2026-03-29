@@ -4,6 +4,7 @@
 import streamlit as st
 import os
 import uuid
+import json
 from datetime import datetime
 from typing import List, Dict, Any
 from dotenv import load_dotenv
@@ -12,6 +13,9 @@ load_dotenv()
 
 from agent_client import agent_client
 from utils import file_storage, format_file_size, is_allowed_file_type, get_file_type
+
+# 历史记录文件路径
+HISTORY_FILE = "assets/chat_history.json"
 
 
 # ============ 页面配置 ============
@@ -64,8 +68,43 @@ st.markdown("""
             background: #f0f0f0;
             border-radius: 50%;
         }
+        
+        .example-text {
+            color: #1565c0;
+            cursor: pointer;
+            padding: 0.5rem;
+            margin: 0.25rem 0;
+            border-radius: 8px;
+            background: #f5f5f5;
+        }
+        
+        .example-text:hover {
+            background: #e3f2fd;
+        }
     </style>
 """, unsafe_allow_html=True)
+
+
+# ============ 历史记录持久化 ============
+def load_history_from_file():
+    """从文件加载历史记录"""
+    try:
+        if os.path.exists(HISTORY_FILE):
+            with open(HISTORY_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+    except Exception as e:
+        print(f"加载历史记录失败: {e}")
+    return []
+
+
+def save_history_to_file(history):
+    """保存历史记录到文件"""
+    try:
+        os.makedirs(os.path.dirname(HISTORY_FILE), exist_ok=True)
+        with open(HISTORY_FILE, 'w', encoding='utf-8') as f:
+            json.dump(history, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"保存历史记录失败: {e}")
 
 
 # ============ 初始化Session State ============
@@ -83,8 +122,9 @@ def init_session_state():
     if 'uploaded_files' not in st.session_state:
         st.session_state.uploaded_files = []
     
+    # 从文件加载历史记录
     if 'history' not in st.session_state:
-        st.session_state.history = []
+        st.session_state.history = load_history_from_file()
     
     if 'stop_generation' not in st.session_state:
         st.session_state.stop_generation = False
@@ -148,7 +188,6 @@ def show_history_panel():
     if not st.session_state.show_history:
         return
     
-    # 使用 container 替代 HTML
     st.markdown("### 📝 历史记录")
     
     if not st.session_state.history:
@@ -158,7 +197,6 @@ def show_history_panel():
             col1, col2 = st.columns([5, 1])
             with col1:
                 if st.button(f"💬 {session['title'][:20]}", key=f"hist_{i}", use_container_width=True):
-                    # 加载历史会话
                     st.session_state.current_session_id = session['session_id']
                     st.session_state.messages = session['messages'].copy()
                     st.session_state.show_history = False
@@ -166,6 +204,7 @@ def show_history_panel():
             with col2:
                 if st.button("🗑️", key=f"del_{i}", help="删除"):
                     st.session_state.history.pop(i)
+                    save_history_to_file(st.session_state.history)
                     st.rerun()
     
     st.markdown("---")
@@ -182,11 +221,18 @@ def display_chat_messages():
         <div style="text-align: center; padding: 3rem 1rem; color: #666;">
             <h2>👋 欢迎使用银行信贷分析助手</h2>
             <p style="font-size: 1rem; margin: 1rem 0;">输入企业名称开始分析</p>
-            <div style="margin-top: 1.5rem; color: #999; font-size: 0.9rem;">
-                <p>示例：百度在线网络技术（北京）有限公司</p>
-            </div>
         </div>
         """, unsafe_allow_html=True)
+        
+        # 示例企业名称
+        st.markdown("**例如：**")
+        examples = [
+            "百度在线网络技术（北京）有限公司",
+            "腾讯控股有限公司",
+            "阿里巴巴集团"
+        ]
+        for example in examples:
+            st.markdown(f"• {example}")
         return
     
     for msg in st.session_state.messages:
@@ -197,23 +243,12 @@ def display_chat_messages():
                 files_html = " ".join([f'<span class="file-badge">📎 {f["name"]}</span>' for f in msg["files"]])
                 st.markdown(files_html, unsafe_allow_html=True)
             
-            if msg.get("report_links"):
-                st.markdown("**📥 报告下载**:")
-                links = msg["report_links"]
-                cols = st.columns(min(4, len(links)))
-                link_names = ["申报方案", "财务分析", "行业分析", "结论"]
-                
-                for i, (col, name) in enumerate(zip(cols, link_names)):
-                    key = f"report_part{i+1}_url"
-                    if key in links and links[key]:
-                        with col:
-                            st.link_button(f"📄 {name}", links[key], use_container_width=True)
+            # 移除无效的"报告下载"按钮
 
 
 # ============ 输入区域 ============
 def show_input_area():
     """显示输入区域"""
-    # 上传文件区域
     if st.session_state.show_upload:
         with st.container():
             st.markdown("**📎 上传参考资料**")
@@ -256,12 +291,10 @@ def show_input_area():
                         st.session_state.show_upload = False
                         st.rerun()
     
-    # 显示已上传的文件
     if st.session_state.uploaded_files and not st.session_state.show_upload:
         files_html = " ".join([f'<span class="file-badge">📎 {f["name"]}</span>' for f in st.session_state.uploaded_files])
         st.markdown(files_html, unsafe_allow_html=True)
     
-    # 输入框区域
     col_plus, col_input = st.columns([0.5, 10])
     
     with col_plus:
@@ -281,13 +314,11 @@ def process_user_message(prompt: str):
     
     st.session_state.is_processing = True
     
-    # 如果有上传文件，把文件信息附加到消息中
     message_with_files = prompt
     if st.session_state.uploaded_files:
         file_names = [f["name"] for f in st.session_state.uploaded_files]
         message_with_files = f"{prompt}\n\n[用户上传了以下参考资料：\n" + "\n".join([f"- {name}" for name in file_names]) + "\n请在分析时参考这些资料。]"
     
-    # 添加用户消息
     user_msg = {
         "role": "user",
         "content": prompt,
@@ -299,14 +330,12 @@ def process_user_message(prompt: str):
     
     st.session_state.messages.append(user_msg)
     
-    # 显示用户消息
     with st.chat_message("user", avatar="👤"):
         st.markdown(prompt)
         if user_msg.get("files"):
             files_html = " ".join([f'<span class="file-badge">📎 {f["name"]}</span>' for f in user_msg["files"]])
             st.markdown(files_html, unsafe_allow_html=True)
     
-    # 显示助手回复
     with st.chat_message("assistant", avatar="🏦"):
         if st.button("⏹️ 停止生成", key="stop_btn", type="primary"):
             st.session_state.stop_generation = True
@@ -335,73 +364,25 @@ def process_user_message(prompt: str):
         except Exception as e:
             full_response = f"❌ 发生错误: {str(e)}"
             message_placeholder.markdown(full_response)
-        
-        report_links = extract_report_links(full_response)
-        
-        if report_links:
-            st.markdown("**📥 报告下载**:")
-            cols = st.columns(min(4, len(report_links)))
-            link_names = ["申报方案", "财务分析", "行业分析", "结论"]
-            
-            for i, (col, name) in enumerate(zip(cols, link_names)):
-                key = f"report_part{i+1}_url"
-                if key in report_links and report_links[key]:
-                    with col:
-                        st.link_button(f"📄 {name}", report_links[key], use_container_width=True)
     
-    # 重置状态
     st.session_state.stop_generation = False
     st.session_state.is_processing = False
     
-    # 添加助手消息到历史
     assistant_msg = {
         "role": "assistant",
         "content": full_response,
         "timestamp": datetime.now().isoformat()
     }
     
-    if report_links:
-        assistant_msg["report_links"] = report_links
-    
     st.session_state.messages.append(assistant_msg)
     
-    # 保存到历史记录
     save_to_history(prompt)
     
-    # 清空上传的文件
     st.session_state.uploaded_files = []
     st.session_state.show_upload = False
 
 
 # ============ 工具函数 ============
-def extract_report_links(text: str) -> Dict[str, str]:
-    """从文本中提取报告链接"""
-    import re
-    
-    links = {}
-    patterns = {
-        "report_part1_url": r'\[.*?申报方案.*?\]\((https?://[^\)]+\.docx?)\)',
-        "report_part2_url": r'\[.*?财务分析.*?\]\((https?://[^\)]+\.docx?)\)',
-        "report_part3_url": r'\[.*?行业分析.*?\]\((https?://[^\)]+\.docx?)\)',
-        "report_part4_url": r'\[.*?结论.*?\]\((https?://[^\)]+\.docx?)\)',
-    }
-    
-    for key, pattern in patterns.items():
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
-            links[key] = match.group(1)
-    
-    url_pattern = r'(https?://[^\s<>"]+\.docx?)'
-    all_urls = re.findall(url_pattern, text)
-    
-    for i, url in enumerate(all_urls[:4]):
-        key = f"report_part{i+1}_url"
-        if key not in links:
-            links[key] = url
-    
-    return links if links else None
-
-
 def save_to_history(user_message: str):
     """保存到历史记录"""
     title = user_message[:30] + "..." if len(user_message) > 30 else user_message
@@ -413,7 +394,6 @@ def save_to_history(user_message: str):
         'messages': st.session_state.messages.copy()
     }
     
-    # 检查是否已存在
     existing_index = None
     for i, s in enumerate(st.session_state.history):
         if s['session_id'] == session['session_id']:
@@ -427,7 +407,8 @@ def save_to_history(user_message: str):
         if len(st.session_state.history) > 15:
             st.session_state.history.pop()
     
-    # 打印日志确认保存
+    # 保存到文件
+    save_history_to_file(st.session_state.history)
     print(f"[历史记录] 已保存会话: {title}, 总数: {len(st.session_state.history)}")
 
 
@@ -446,23 +427,12 @@ def create_new_session():
 def main():
     """主函数"""
     init_session_state()
-    
-    # 顶部工具栏
     show_top_bar()
-    
-    # 历史记录面板（如果显示）
     show_history_panel()
-    
-    # 主标题
     st.markdown('<div class="main-title">🏦 银行信贷分析助手</div>', unsafe_allow_html=True)
-    
-    # 显示对话消息
     display_chat_messages()
-    
-    # 输入区域
     show_input_area()
     
-    # 处理用户输入
     if st.session_state.get("main_chat_input") and not st.session_state.is_processing:
         prompt = st.session_state.main_chat_input
         process_user_message(prompt)
